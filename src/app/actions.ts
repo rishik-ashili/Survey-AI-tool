@@ -4,6 +4,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { generateSurvey, type GenerateSurveyInput, type GenerateSurveyOutput } from "@/ai/flows/generate-survey-from-prompt";
+import { validateAnswer, type ValidateAnswerInput, type ValidateAnswerOutput } from "@/ai/flows/validate-answer-flow";
 import type { SavedSurvey, SurveyQuestion, SurveyResult, SubmissionMetadata } from "@/types";
 
 export async function handleGenerateSurvey(input: GenerateSurveyInput): Promise<GenerateSurveyOutput> {
@@ -19,6 +20,16 @@ export async function handleGenerateSurvey(input: GenerateSurveyInput): Promise<
     return { surveyQuestions: [] };
   }
 }
+
+export async function handleValidateAnswer(input: ValidateAnswerInput): Promise<ValidateAnswerOutput> {
+    try {
+        return await validateAnswer(input);
+    } catch (error) {
+        console.error("Error calling validateAnswer flow:", error);
+        return { isValid: true, suggestion: "Could not validate answer." }; // Default to valid to avoid blocking user
+    }
+}
+
 
 export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 'id'>[]): Promise<{data: SavedSurvey | null, error: string | null}> {
   const cookieStore = cookies()
