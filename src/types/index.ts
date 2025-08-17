@@ -1,4 +1,5 @@
 
+
 export type QuestionType = 'text' | 'number' | 'yes-no' | 'multiple-choice';
 
 export interface QuestionOption {
@@ -12,6 +13,7 @@ export interface SurveyQuestion {
   text: string;
   type: QuestionType;
   options?: QuestionOption[]; // For multiple-choice questions
+  expected_answers?: string; // For text questions, comma-separated
   created_at?: string; // from Supabase
   survey_id?: string; // from Supabase
 }

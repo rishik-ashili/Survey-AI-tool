@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, Trash2, Save, PlusCircle, Loader2, Type, Hash, Binary, List, GripVertical } from "lucide-react";
+import { Download, Trash2, Save, PlusCircle, Loader2, Type, Hash, Binary, List, GripVertical, MessageSquareQuote } from "lucide-react";
 
 import type { SurveyQuestion, QuestionType, QuestionOption } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
 import { Textarea } from "./ui/textarea";
 import { Input } from "./ui/input";
 import { saveSurvey } from "@/app/actions";
+import { Label } from "./ui/label";
 
 
 type SurveyBuilderProps = {
@@ -43,8 +44,8 @@ export default function SurveyBuilder({
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
-  const handleUpdateQuestionText = (id: string, text: string) => {
-    setQuestions(prev => prev.map(q => q.id === id ? { ...q, text } : q));
+  const handleUpdateQuestion = (id: string, field: keyof SurveyQuestion, value: any) => {
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, [field]: value } : q));
   }
 
   const handleDelete = (id: string) => {
@@ -163,7 +164,7 @@ export default function SurveyBuilder({
                     {editingQuestionId === question.id ? (
                         <Textarea
                           value={question.text}
-                          onChange={(e) => handleUpdateQuestionText(question.id, e.target.value)}
+                          onChange={(e) => handleUpdateQuestion(question.id, 'text', e.target.value)}
                           onBlur={() => setEditingQuestionId(null)}
                           autoFocus
                           className="flex-1 bg-transparent border-primary/50"
@@ -194,6 +195,21 @@ export default function SurveyBuilder({
                             </Button>
                         </div>
                     )}
+                     {question.type === 'text' && (
+                        <div className="space-y-2 pl-4">
+                            <Label htmlFor={`expected-answers-${question.id}`} className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <MessageSquareQuote className="h-4 w-4"/>
+                                Expected Answers (Optional, comma-separated)
+                            </Label>
+                            <Textarea
+                                id={`expected-answers-${question.id}`}
+                                placeholder="e.g., Delhi, Mumbai, Kolkata"
+                                value={question.expected_answers || ''}
+                                onChange={(e) => handleUpdateQuestion(question.id, 'expected_answers', e.target.value)}
+                                className="text-sm"
+                            />
+                        </div>
+                     )}
                   </div>
                   <div className="flex items-center gap-2">
                      <Select value={question.type} onValueChange={(v) => handleQuestionTypeChange(question.id, v as QuestionType)}>

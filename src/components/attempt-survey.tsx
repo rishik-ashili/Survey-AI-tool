@@ -35,6 +35,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [metadata, setMetadata] = useState<SubmissionMetadata>({});
   const [errors, setErrors] = useState<ValidationErrors>({});
+  const [validationContext, setValidationContext] = useState('');
   const { toast } = useToast();
   const isMobile = useIsMobile();
 
@@ -59,6 +60,9 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
             const geoData = await geoResponse.json();
             partialMetadata.city = geoData.city;
             partialMetadata.country = geoData.countryName;
+            if(geoData.countryName) {
+                setValidationContext(`The user is responding from ${geoData.city}, ${geoData.countryName}.`);
+            }
            } catch(geoError) {
              console.warn("Could not fetch city/country", geoError);
            }
@@ -112,7 +116,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
             continue;
         }
         
-        // 2. Client-side validation
+        // 2. Client-side validation for numbers
         if (question.type === 'number') {
             const numValue = Number(answer);
             if (isNaN(numValue)) {
@@ -133,7 +137,12 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         
         // 3. AI validation for text questions
         if (question.type === 'text') {
-            const result = await handleValidateAnswer({ question: question.text, answer: String(answer) });
+            const result = await handleValidateAnswer({ 
+                question: question.text, 
+                answer: String(answer),
+                context: validationContext,
+                expected_answers: question.expected_answers
+            });
             if (!result.isValid) {
                 newErrors[question.id] = { message: `Your answer seems off-topic.`, suggestion: result.suggestion };
             }
@@ -302,9 +311,13 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="text-center text-2xl font-bold">{survey.title}</CardTitle>
-          <CardDescription className="text-center flex items-center justify-center gap-2">
-            {metadata.device_type === 'mobile' ? <Smartphone className="h-4 w-4" /> : <Laptop className="h-4 w-4" />}
-            {metadata.city && metadata.country ? `${metadata.city}, ${metadata.country}` : 'Please fill out the survey below.'}
+           <CardDescription className="text-center flex items-center justify-center gap-2">
+            <Textarea
+                placeholder="You can provide extra context for the AI validator here. E.g., This survey is for residents of India."
+                className="text-sm"
+                value={validationContext}
+                onChange={(e) => setValidationContext(e.target.value)}
+            />
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>

@@ -56,6 +56,7 @@ export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 
     survey_id: surveyData.id,
     text: q.text,
     type: q.type,
+    expected_answers: q.expected_answers,
   }));
   
   const { data: questionsData, error: questionsError } = await supabase

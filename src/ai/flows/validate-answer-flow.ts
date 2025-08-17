@@ -13,7 +13,9 @@ import { z } from 'genkit';
 
 const ValidateAnswerInputSchema = z.object({
   question: z.string().describe('The survey question text.'),
-  answer: z.string().describe('The user\'s answer to the question.'),
+  answer: z.string().describe("The user's answer to the question."),
+  context: z.string().optional().describe('Optional context about the survey (e.g., "This survey is for residents of India.")'),
+  expected_answers: z.string().optional().describe('A comma-separated list of expected or valid answers. If the user answer is on this list, it is valid.')
 });
 export type ValidateAnswerInput = z.infer<typeof ValidateAnswerInputSchema>;
 
@@ -32,6 +34,15 @@ export type ValidateAnswerOutput = z.infer<typeof ValidateAnswerOutputSchema>;
 export async function validateAnswer(
   input: ValidateAnswerInput
 ): Promise<ValidateAnswerOutput> {
+  // First, check against the provided expected answers if they exist.
+  if (input.expected_answers) {
+    const expectedList = input.expected_answers.split(',').map(item => item.trim().toLowerCase());
+    if (expectedList.includes(input.answer.toLowerCase())) {
+      return { isValid: true, suggestion: '' };
+    }
+  }
+
+  // If no match or no expected answers, proceed with AI validation.
   return validateAnswerFlow(input);
 }
 
@@ -41,8 +52,17 @@ const validateAnswerPrompt = ai.definePrompt({
   output: { schema: ValidateAnswerOutputSchema },
   prompt: `You are an AI assistant that validates survey answers. Your task is to determine if the user's answer is a valid and relevant response to the given question.
 
+{{#if context}}
+Important Context: {{{context}}}
+Use this context to inform your validation. For example, if the context is "This survey is for residents of India", then "Delhi" is a valid answer for a question about states/territories.
+{{/if}}
+
 Question: {{{question}}}
 Answer: {{{answer}}}
+
+{{#if expected_answers}}
+The user was given a list of expected answer types. The answer should be similar to these: {{{expected_answers}}}
+{{/if}}
 
 Evaluate the answer. If it is a reasonable and on-topic response to the question, set 'isValid' to true. If the answer is irrelevant, nonsensical, or clearly not what the question is asking for, set 'isValid' to false.
 
