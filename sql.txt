@@ -166,3 +166,8 @@ JOIN
     answers a ON sub.id = a.submission_id
 JOIN
     questions q ON a.question_id = q.id;
+
+
+-- Allow anyone to delete surveys
+CREATE POLICY "Anyone can delete surveys." ON surveys
+  FOR DELETE USING (true);
