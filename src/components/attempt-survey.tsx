@@ -123,15 +123,15 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                 newErrors[question.id] = { message: 'Please enter a valid number.'};
                 continue;
             }
-            // Check for range in question text e.g., "on a scale of 1 to 5"
-            const rangeMatch = question.text.match(/(\d+)\s*to\s*(\d+)/);
-            if (rangeMatch) {
-                const min = parseInt(rangeMatch[1], 10);
-                const max = parseInt(rangeMatch[2], 10);
-                if (numValue < min || numValue > max) {
-                    newErrors[question.id] = { message: `Your answer must be between ${min} and ${max}.` };
-                    continue;
-                }
+            // Check for range from question properties
+            const { min_range, max_range } = question;
+            if (min_range !== undefined && min_range !== null && numValue < min_range) {
+                newErrors[question.id] = { message: `Your answer must be at least ${min_range}.` };
+                continue;
+            }
+            if (max_range !== undefined && max_range !== null && numValue > max_range) {
+                newErrors[question.id] = { message: `Your answer must be at most ${max_range}.` };
+                continue;
             }
         }
         
@@ -253,6 +253,22 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                                 </RadioGroup>
                         )
                     case 'multiple-choice':
+                        return (
+                             <RadioGroup
+                                id={`answer-${question.id}`}
+                                onValueChange={(v) => handleAnswerChange(question.id, v)}
+                                value={value as string || ''}
+                                className={`space-y-2 ${error ? 'rounded-md border border-destructive p-2' : ''}`}
+                            >
+                                {question.options?.map(option => (
+                                    <div key={option.id} className="flex items-center space-x-2">
+                                        <RadioGroupItem value={option.text} id={`${question.id}-${option.id}`} />
+                                        <Label htmlFor={`${question.id}-${option.id}`}>{option.text}</Label>
+                                    </div>
+                                ))}
+                            </RadioGroup>
+                        )
+                    case 'multiple-choice-multi':
                         return (
                             <div id={`answer-${question.id}`} className={`space-y-2 ${error ? 'rounded-md border border-destructive p-2' : ''}`}>
                                 {question.options?.map(option => (

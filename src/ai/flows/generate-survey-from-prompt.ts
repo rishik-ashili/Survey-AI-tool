@@ -27,8 +27,8 @@ export type GenerateSurveyInput = z.infer<typeof GenerateSurveyInputSchema>;
 const GenerateSurveyOutputSchema = z.object({
   surveyQuestions: z.array(z.object({
     text: z.string().describe("The text of the survey question."),
-    type: z.enum(['text', 'number', 'yes-no', 'multiple-choice']).describe("The type of question. Use 'text' for open-ended answers, 'number' for numeric answers (like ratings or scales), 'yes-no' for binary choices, and 'multiple-choice' for questions where the user can select from a list of options."),
-    options: z.array(z.object({ text: z.string() })).optional().describe("An array of option objects for 'multiple-choice' questions."),
+    type: z.enum(['text', 'number', 'yes-no', 'multiple-choice', 'multiple-choice-multi']).describe("The type of question. Use 'text' for open-ended answers, 'number' for numeric answers (like ratings or scales), 'yes-no' for binary choices, 'multiple-choice' for questions where the user can select one from a list of options, and 'multiple-choice-multi' for questions where the user can select multiple options."),
+    options: z.array(z.object({ text: z.string() })).optional().describe("An array of option objects for 'multiple-choice' or 'multiple-choice-multi' questions."),
   })).describe('An array of survey questions generated from the prompt, each with a text and a type.'),
 });
 export type GenerateSurveyOutput = z.infer<typeof GenerateSurveyOutputSchema>;
@@ -41,9 +41,9 @@ const generateSurveyPrompt = ai.definePrompt({
   name: 'generateSurveyPrompt',
   input: {schema: GenerateSurveyInputSchema},
   output: {schema: GenerateSurveyOutputSchema},
-  prompt: `You are an AI-powered survey generator. Based on the user's prompt, you will generate a list of survey questions. For each question, determine the most appropriate type: 'text' for open-ended answers, 'number' for scales or ratings, 'yes-no' for binary questions, or 'multiple-choice' for questions with a predefined set of answers. Provide a good mix of question types.
+  prompt: `You are an AI-powered survey generator. Based on the user's prompt, you will generate a list of survey questions. For each question, determine the most appropriate type: 'text' for open-ended answers, 'number' for scales or ratings, 'yes-no' for binary questions, 'multiple-choice' for single-selection questions, or 'multiple-choice-multi' for multi-selection questions. Provide a good mix of question types.
 
-For 'multiple-choice' questions, you MUST provide an 'options' array with at least 3 relevant options, each being an object with a 'text' field. For other question types, the 'options' field should be omitted.
+For 'multiple-choice' and 'multiple-choice-multi' questions, you MUST provide an 'options' array with at least 3 relevant options, each being an object with a 'text' field. For other question types, the 'options' field should be omitted.
 
 Prompt: {{{prompt}}}
 

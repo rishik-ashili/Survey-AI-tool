@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, Trash2, Save, PlusCircle, Loader2, Type, Hash, Binary, List, GripVertical, MessageSquareQuote } from "lucide-react";
+import { Download, Trash2, Save, PlusCircle, Loader2, Type, Hash, Binary, List, GripVertical, MessageSquareQuote, CheckSquare, ListChecks } from "lucide-react";
 
 import type { SurveyQuestion, QuestionType, QuestionOption } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import { Label } from "./ui/label";
 
 type SurveyBuilderProps = {
   title: string;
+  setTitle: (title: string) => void;
   questions: SurveyQuestion[];
   setQuestions: React.Dispatch<React.SetStateAction<SurveyQuestion[]>>;
   onSaveSuccess: () => void;
@@ -34,6 +35,7 @@ type SurveyBuilderProps = {
 
 export default function SurveyBuilder({
   title,
+  setTitle,
   questions,
   setQuestions,
   onSaveSuccess,
@@ -53,7 +55,17 @@ export default function SurveyBuilder({
   };
   
   const handleQuestionTypeChange = (id: string, type: QuestionType) => {
-    setQuestions(prev => prev.map(q => q.id === id ? {...q, type: type, options: type === 'multiple-choice' ? (q.options || [{id: `opt-${Date.now()}`, text: 'Option 1'}]) : undefined} : q));
+    setQuestions(prev => prev.map(q => {
+        if (q.id !== id) return q;
+        const isMultipleChoice = type.startsWith('multiple-choice');
+        return {
+            ...q,
+            type: type,
+            options: isMultipleChoice ? (q.options || [{id: `opt-${Date.now()}`, text: 'Option 1'}]) : undefined,
+            min_range: type === 'number' ? q.min_range : undefined,
+            max_range: type === 'number' ? q.max_range : undefined,
+        }
+    }));
   }
   
   const handleOptionChange = (qId: string, optId: string, text: string) => {
@@ -117,6 +129,7 @@ export default function SurveyBuilder({
     'number': <Hash className="h-4 w-4" />,
     'yes-no': <Binary className="h-4 w-4" />,
     'multiple-choice': <List className="h-4 w-4" />,
+    'multiple-choice-multi': <ListChecks className="h-4 w-4" />,
   }
 
   return (
@@ -124,9 +137,11 @@ export default function SurveyBuilder({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex-1">
           <h2 className="text-2xl font-bold tracking-tight">Survey Builder</h2>
-          <p className="text-muted-foreground truncate" title={title}>
-            Editing: {title}
-          </p>
+           <Input 
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="text-muted-foreground text-lg border-none -ml-3 shadow-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
         </div>
         <div className="flex gap-2">
            <Button onClick={onAddMore} disabled={isLoadingMore} variant="outline">
@@ -174,7 +189,7 @@ export default function SurveyBuilder({
                         {question.text}
                       </p>
                     )}
-                    {question.type === 'multiple-choice' && (
+                    {(question.type === 'multiple-choice' || question.type === 'multiple-choice-multi') && (
                         <div className="space-y-2 pl-4">
                             {question.options?.map(option => (
                                 <div key={option.id} className="flex items-center gap-2">
@@ -210,10 +225,34 @@ export default function SurveyBuilder({
                             />
                         </div>
                      )}
+                     {question.type === 'number' && (
+                        <div className="space-y-2 pl-4 flex items-center gap-4">
+                            <Label htmlFor={`min-range-${question.id}`} className="flex items-center gap-2 text-sm text-muted-foreground">
+                                Range
+                            </Label>
+                            <Input
+                                id={`min-range-${question.id}`}
+                                type="number"
+                                placeholder="Min"
+                                value={question.min_range ?? ''}
+                                onChange={(e) => handleUpdateQuestion(question.id, 'min_range', e.target.valueAsNumber)}
+                                className="text-sm w-24"
+                            />
+                             <span className="text-muted-foreground">-</span>
+                             <Input
+                                id={`max-range-${question.id}`}
+                                type="number"
+                                placeholder="Max"
+                                value={question.max_range ?? ''}
+                                onChange={(e) => handleUpdateQuestion(question.id, 'max_range', e.target.valueAsNumber)}
+                                className="text-sm w-24"
+                            />
+                        </div>
+                     )}
                   </div>
                   <div className="flex items-center gap-2">
                      <Select value={question.type} onValueChange={(v) => handleQuestionTypeChange(question.id, v as QuestionType)}>
-                        <SelectTrigger className="w-[180px]">
+                        <SelectTrigger className="w-[220px]">
                            <div className="flex items-center gap-2">
                             {questionTypeIcons[question.type]}
                             <SelectValue placeholder="Type" />
@@ -223,7 +262,8 @@ export default function SurveyBuilder({
                             <SelectItem value="text"><div className="flex items-center gap-2"><Type /> Text</div></SelectItem>
                             <SelectItem value="number"><div className="flex items-center gap-2"><Hash /> Number</div></SelectItem>
                             <SelectItem value="yes-no"><div className="flex items-center gap-2"><Binary /> Yes/No</div></SelectItem>
-                            <SelectItem value="multiple-choice"><div className="flex items-center gap-2"><List /> Multiple Choice</div></SelectItem>
+                            <SelectItem value="multiple-choice"><div className="flex items-center gap-2"><List /> Multiple Choice (Single)</div></SelectItem>
+                            <SelectItem value="multiple-choice-multi"><div className="flex items-center gap-2"><ListChecks /> Multiple Choice (Multi)</div></SelectItem>
                         </SelectContent>
                     </Select>
                     <Button

@@ -35,11 +35,22 @@ export default function SurveyPreview({ title, questions }: SurveyPreviewProps) 
         )
       case 'multiple-choice':
         return (
+          <RadioGroup className="space-y-2">
+            {question.options?.map(option => (
+              <div key={option.id} className="flex items-center space-x-2">
+                <RadioGroupItem value={option.text} id={`preview-mc-${question.id}-${option.id}`} disabled />
+                <Label htmlFor={`preview-mc-${question.id}-${option.id}`}>{option.text}</Label>
+              </div>
+            ))}
+          </RadioGroup>
+        )
+      case 'multiple-choice-multi':
+        return (
           <div className="space-y-2">
             {question.options?.map(option => (
               <div key={option.id} className="flex items-center space-x-2">
-                <Checkbox id={`preview-mc-${question.id}-${option.id}`} disabled />
-                <Label htmlFor={`preview-mc-${question.id}-${option.id}`}>{option.text}</Label>
+                <Checkbox id={`preview-mc-multi-${question.id}-${option.id}`} disabled />
+                <Label htmlFor={`preview-mc-multi-${question.id}-${option.id}`}>{option.text}</Label>
               </div>
             ))}
           </div>

@@ -180,6 +180,7 @@ export default function Home() {
               <div className="max-w-4xl mx-auto">
                 <SurveyBuilder
                   title={surveyTitle}
+                  setTitle={setSurveyTitle}
                   questions={questions}
                   setQuestions={setQuestions}
                   onSaveSuccess={() => {

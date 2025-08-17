@@ -1,6 +1,6 @@
 
 
-export type QuestionType = 'text' | 'number' | 'yes-no' | 'multiple-choice';
+export type QuestionType = 'text' | 'number' | 'yes-no' | 'multiple-choice' | 'multiple-choice-multi';
 
 export interface QuestionOption {
   id: string;
@@ -16,6 +16,8 @@ export interface SurveyQuestion {
   expected_answers?: string; // For text questions, comma-separated
   created_at?: string; // from Supabase
   survey_id?: string; // from Supabase
+  min_range?: number;
+  max_range?: number;
 }
 
 export interface SavedSurvey {

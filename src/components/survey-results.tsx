@@ -13,7 +13,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import { Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Pie, Cell, Line, LineChart, PieChart } from "recharts"
+import { Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Pie, Cell, Line, LineChart, PieChart, BarChart } from "recharts"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { format } from 'date-fns';
 
@@ -99,7 +99,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         
         let data: { name: string; value: number, fill?: string }[] = [];
 
-        if (question.type === 'yes-no' || question.type === 'multiple-choice') {
+        if (question.type === 'yes-no' || question.type === 'multiple-choice' || question.type === 'multiple-choice-multi') {
             const counts: Record<string, number> = {};
             
             const allOptions = question.type === 'yes-no' ? ['yes', 'no'] : question.options?.map(o => o.text) || [];
@@ -107,7 +107,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
 
             questionResults.forEach(r => {
                 try {
-                    const answers = question.type === 'multiple-choice' && r.answer_value.startsWith('[') ? JSON.parse(r.answer_value) : [r.answer_value];
+                    const answers = (question.type === 'multiple-choice-multi' || question.type === 'multiple-choice') && r.answer_value.startsWith('[') ? JSON.parse(r.answer_value) : [r.answer_value];
                     (answers as string[]).forEach(ans => {
                         if (counts[ans] !== undefined) {
                             counts[ans]++;
@@ -174,7 +174,22 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
 
      switch (question.type) {
          case 'yes-no':
+            return (
+                <ChartContainer config={chartConfig} className="min-h-60 w-full">
+                    <BarChart data={question.data} layout="vertical">
+                        <XAxis type="number" hide />
+                        <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} />
+                        <Tooltip content={<ChartTooltipContent indicator="line" />} />
+                        <Bar dataKey="value" radius={5}>
+                             {question.data.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={chartConfig[entry.name]?.color || COLORS[index % COLORS.length]} />
+                            ))}
+                        </Bar>
+                    </BarChart>
+                </ChartContainer>
+            )
          case 'multiple-choice':
+         case 'multiple-choice-multi':
             return (
                 <ChartContainer config={chartConfig} className="min-h-60 w-full aspect-square">
                     <PieChart>
@@ -258,7 +273,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                <CardHeader>
                                    <CardTitle className="text-base flex items-center gap-2">
                                        {question.type === 'number' && <LineIcon className="h-5 w-5 text-muted-foreground" />}
-                                       {(question.type === 'yes-no' || question.type === 'multiple-choice') && <PieIcon className="h-5 w-5 text-muted-foreground" />}
+                                       {(question.type === 'yes-no' || question.type.startsWith('multiple-choice')) && <PieIcon className="h-5 w-5 text-muted-foreground" />}
                                        {question.text}
                                     </CardTitle>
                                </CardHeader>

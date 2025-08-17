@@ -58,6 +58,8 @@ export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 
     text: q.text,
     type: q.type,
     expected_answers: q.expected_answers,
+    min_range: q.min_range,
+    max_range: q.max_range,
   }));
   
   const { data: questionsData, error: questionsError } = await supabase
@@ -76,7 +78,7 @@ export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 
   for (let i = 0; i < questions.length; i++) {
     const originalQuestion = questions[i];
     const newQuestion = questionsData[i];
-    if (originalQuestion.type === 'multiple-choice' && originalQuestion.options) {
+    if ((originalQuestion.type === 'multiple-choice' || originalQuestion.type === 'multiple-choice-multi') && originalQuestion.options) {
       for (const option of originalQuestion.options) {
         optionsToInsert.push({
           question_id: newQuestion.id,
