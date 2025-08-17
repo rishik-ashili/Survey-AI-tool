@@ -1,23 +1,19 @@
 
 "use client";
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { SavedSurvey, SurveyQuestion, SubmissionMetadata } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Send, Minus, Plus, User, VenetianMask, Laptop, Smartphone, ShieldCheck, Loader2, ChevronsRight, CornerDownRight } from 'lucide-react';
+import { ArrowLeft, Send, User, VenetianMask, Loader2, ChevronsRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Input } from './ui/input';
 import { Checkbox } from './ui/checkbox';
-import { submitSurvey, handleValidateAnswer } from '@/app/actions';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { Progress } from './ui/progress';
-
+import { submitSurvey, handleValidateAnswer, handleShouldAskQuestion } from '@/app/actions';
 
 type AttemptSurveyProps = {
   survey: SavedSurvey;
@@ -28,9 +24,15 @@ type ValidationErrors = Record<string, { message: string, suggestion?: string }>
 
 type CurrentQuestionInfo = {
     question: SurveyQuestion;
-    path: string; // e.g., "0" for the first question, "0.1" for its second sub-question
-    iteration?: number; // e.g., 1 for the first family member
+    path: string; 
+    iteration?: number; 
 };
+
+type HistoryItem = {
+    questionInfo: CurrentQuestionInfo;
+    answer: any;
+};
+
 
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -41,9 +43,9 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [metadata, setMetadata] = useState<SubmissionMetadata>({});
   const [errors, setErrors] = useState<ValidationErrors>({});
   const { toast } = useToast();
-  const isMobile = useIsMobile();
-  const [history, setHistory] = useState<CurrentQuestionInfo[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [currentQuestionInfo, setCurrentQuestionInfo] = useState<CurrentQuestionInfo | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const questionMap = useMemo(() => {
     const map = new Map<string, SurveyQuestion>();
@@ -60,13 +62,26 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   }, [survey.questions]);
 
   useEffect(() => {
-    // Initialize with the first question
     if (survey.questions.length > 0) {
-        setCurrentQuestionInfo({ question: survey.questions[0], path: '0' });
+        const firstQuestion = survey.questions[0];
+        setCurrentQuestionInfo({ question: firstQuestion, path: '0' });
     }
   }, [survey.questions]);
 
-  const findNextQuestion = (currentInfo: CurrentQuestionInfo, lastAnswer: any): CurrentQuestionInfo | null => {
+  const getQuestionFromPath = useCallback((path: string): SurveyQuestion | undefined => {
+    const pathParts = path.split('.').map(Number);
+    let currentLevel: SurveyQuestion[] | undefined = survey.questions;
+    let question: SurveyQuestion | undefined;
+
+    for (const index of pathParts) {
+        if (!currentLevel || index < 0 || index >= currentLevel.length) return undefined;
+        question = currentLevel[index];
+        currentLevel = question?.sub_questions;
+    }
+    return question;
+  }, [survey.questions]);
+
+  const findNextQuestion = useCallback((currentInfo: CurrentQuestionInfo, lastAnswer: any): CurrentQuestionInfo | null => {
       const currentQuestion = currentInfo.question;
 
       // 1. Check for triggered sub-questions
@@ -80,99 +95,92 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
           }
       }
       
-      const getQuestionFromPath = (path: string): SurveyQuestion | undefined => {
-        const pathParts = path.split('.').map(Number);
-        let currentLevel = survey.questions;
-        let question: SurveyQuestion | undefined;
-
-        for (const index of pathParts) {
-            if (index < 0 || index >= currentLevel.length) return undefined;
-            question = currentLevel[index];
-            currentLevel = question?.sub_questions || [];
-        }
-        return question;
-    };
-
-
-      // 2. Check for iteration
+      // 2. Check for starting an iteration
       const nextIterationQuestion = [...questionMap.values()].find(q => q.is_iterative && q.iterative_source_question_id === currentQuestion.id);
       if (nextIterationQuestion && !isNaN(Number(lastAnswer)) && Number(lastAnswer) > 0) {
-          const iterativeQuestionIndex = [...questionMap.values()].indexOf(nextIterationQuestion);
-          return { question: nextIterationQuestion, path: `q${iterativeQuestionIndex}`, iteration: 1 };
+          const iterativeQuestionIndex = [...survey.questions].findIndex(q => q.id === nextIterationQuestion.id);
+          return { question: nextIterationQuestion, path: `${iterativeQuestionIndex}`, iteration: 1 };
       }
 
 
       // 3. Move to next sibling or parent's sibling
-      let currentPath = currentInfo.path;
-      // This loop will continue until we find a next question or exhaust all possibilities.
-      while (currentPath.includes('.')) {
-          const pathParts = currentPath.split('.').map(Number);
+      let path = currentInfo.path;
+      while (path) {
+          const pathParts = path.split('.').map(Number);
           const lastIndex = pathParts.pop()!;
           const parentPath = pathParts.join('.');
 
-          const parentQuestion = getQuestionFromPath(parentPath);
-          const siblings = parentQuestion?.sub_questions || survey.questions;
-          
+          const parentQuestion = parentPath ? getQuestionFromPath(parentPath) : undefined;
+          const siblings = parentQuestion ? parentQuestion.sub_questions! : survey.questions;
+
           if (lastIndex + 1 < siblings.length) {
               const nextSibling = siblings[lastIndex + 1];
-              return { question: nextSibling, path: `${parentPath}.${lastIndex + 1}` };
+              return { question: nextSibling, path: parentPath ? `${parentPath}.${lastIndex + 1}`: `${lastIndex + 1}` };
           }
-          // If no next sibling, go up one level and repeat the process.
-          currentPath = parentPath;
-      }
-      
-      // Handle top-level questions
-      const topLevelIndex = Number(currentPath);
-      if (topLevelIndex + 1 < survey.questions.length) {
-          const nextQuestion = survey.questions[topLevelIndex + 1];
-          return { question: nextQuestion, path: `${topLevelIndex + 1}` };
+          
+          path = parentPath; // Go up one level
       }
 
-      // If no next question is found at any level, we're at the end.
       return null;
-  }
+  }, [getQuestionFromPath, questionMap, survey.questions]);
   
-  const getNextQuestion = (lastAnswer: any) => {
-      let nextInfo: CurrentQuestionInfo | null = null;
-      let tempHistory = [...history];
-      
-      if (currentQuestionInfo) {
-        // Handle iterative logic
-        if (currentQuestionInfo.iteration) {
-            const sourceQuestionId = currentQuestionInfo.question.iterative_source_question_id;
-            const sourceAnswer = sourceQuestionId ? answers[sourceQuestionId] : 0;
-            const totalIterations = Number(sourceAnswer);
+  const getNextQuestion = useCallback(async (historyStack: HistoryItem[]): Promise<CurrentQuestionInfo | null> => {
+      if (historyStack.length === 0) return null;
 
-            if (currentQuestionInfo.iteration < totalIterations) {
-                // Stay on the same question, just increment iteration
-                return { ...currentQuestionInfo, iteration: currentQuestionInfo.iteration + 1 };
-            } 
-            // Iteration finished, find what's next after the source question
-            const sourceQuestionInfo = tempHistory.find(h => h.question.id === sourceQuestionId) || currentQuestionInfo;
-             if (sourceQuestionInfo) {
-                nextInfo = findNextQuestion(sourceQuestionInfo, sourceAnswer);
-                const sourceQuestionIndexInHistory = tempHistory.findIndex(h => h.question.id === sourceQuestionId);
-                if (sourceQuestionIndexInHistory > -1) {
-                  tempHistory = tempHistory.slice(0, sourceQuestionIndexInHistory + 1);
-                }
-            }
-        } else {
-            nextInfo = findNextQuestion(currentQuestionInfo, lastAnswer);
-        }
+      const lastHistoryItem = historyStack[historyStack.length - 1];
+      const { questionInfo: lastQuestionInfo, answer: lastAnswer } = lastHistoryItem;
+    
+      let nextInfo: CurrentQuestionInfo | null = null;
+
+      // Handle iterative logic
+      if (lastQuestionInfo.iteration) {
+          const sourceQuestionId = lastQuestionInfo.question.iterative_source_question_id;
+          const sourceAnswerItem = history.find(h => h.questionInfo.question.id === sourceQuestionId);
+          const totalIterations = Number(sourceAnswerItem?.answer || 0);
+
+          if (lastQuestionInfo.iteration < totalIterations) {
+              // Stay on the same question, just increment iteration
+              nextInfo = { ...lastQuestionInfo, iteration: lastQuestionInfo.iteration + 1 };
+          } else {
+             // Iteration finished, find what's next after the iterative question itself
+             const iterativeQuestionInfoInHistory = history.find(h => h.questionInfo.question.id === lastQuestionInfo.question.id && h.questionInfo.iteration === totalIterations);
+             if (iterativeQuestionInfoInHistory) {
+                nextInfo = findNextQuestion(iterativeQuestionInfoInHistory.questionInfo, lastAnswer);
+             }
+          }
+      } else {
+          nextInfo = findNextQuestion(lastQuestionInfo, lastAnswer);
       }
       
-      // Traverse up the history if no direct next question is found
-      while (!nextInfo && tempHistory.length > 0) {
-          const lastStep = tempHistory.pop()!;
-          const lastStepAnswer = answers[lastStep.question.id];
-          nextInfo = findNextQuestion(lastStep, lastStepAnswer);
+      // If we found a potential next question, validate if we should ask it
+      if (nextInfo) {
+          const previousAnswers = history.map(h => ({
+              question: h.questionInfo.question.text,
+              answer: String(h.answer)
+          }));
+          const { shouldAsk } = await handleShouldAskQuestion({
+              question: nextInfo.question.text,
+              previousAnswers: previousAnswers
+          });
+
+          if (!shouldAsk) {
+              // If AI says skip, add a placeholder to history and recurse
+              const skippedHistoryItem: HistoryItem = { 
+                  questionInfo: nextInfo, 
+                  answer: '[SKIPPED_BY_AI]'
+              };
+              return getNextQuestion([...history, skippedHistoryItem]);
+          }
       }
-      
+
       return nextInfo;
-  }
+  }, [findNextQuestion, history]);
+
 
   const handleNext = async () => {
     if (!currentQuestionInfo) return;
+    setIsNavigating(true);
+
     const { question, iteration } = currentQuestionInfo;
     const answer = iteration 
       ? (answers[question.id]?.values || [])[iteration -1]
@@ -194,37 +202,36 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     
     if (Object.keys(newErrors).length > 0) {
         setErrors(newErrors);
+        setIsNavigating(false);
         return;
     }
     
      const validationInput = {
         question: question.text,
         answer: String(answer),
-        expected_answers: question.expected_answers,
-        // Example context, can be made dynamic later
-        context: 'This survey is for residents of India.' 
+        expected_answers: question.expected_answers
     };
 
     if (question.type === 'text') {
         const validationResult = await handleValidateAnswer(validationInput);
         if (!validationResult.isValid) {
             setErrors({[question.id]: { message: validationResult.suggestion, suggestion: validationResult.suggestion }});
+            setIsNavigating(false);
             return;
         }
     }
 
-
-    const nextInfo = getNextQuestion(answer);
+    const newHistoryItem: HistoryItem = { questionInfo: currentQuestionInfo, answer: answer };
+    const updatedHistory = [...history, newHistoryItem];
+    setHistory(updatedHistory);
     
-    if (nextInfo) {
-        setHistory(prev => [...prev, currentQuestionInfo]);
-        setCurrentQuestionInfo(nextInfo);
-    } else {
-        // No more questions, survey is finished
-        setHistory(prev => [...prev, currentQuestionInfo]);
-        setCurrentQuestionInfo(null);
+    const nextInfo = await getNextQuestion(updatedHistory);
+    
+    setCurrentQuestionInfo(nextInfo);
+    if (!nextInfo) {
         toast({ title: "All questions answered!", description: "You can now submit your survey."})
     }
+    setIsNavigating(false);
   }
   
   const handleAnswerChange = (questionId: string, value: string | number | string[], iteration?: number) => {
@@ -394,8 +401,9 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
             </CardContent>
             <CardFooter className="flex flex-col sm:flex-row gap-2">
                 {currentQuestionInfo ? (
-                    <Button type="button" className="w-full" size="lg" onClick={handleNext}>
-                        Next <ChevronsRight className="ml-2 h-4 w-4"/>
+                    <Button type="button" className="w-full" size="lg" onClick={handleNext} disabled={isNavigating}>
+                        {isNavigating ? <Loader2 className="mr-2 animate-spin" /> : 'Next'} 
+                        {!isNavigating && <ChevronsRight className="ml-2 h-4 w-4"/>}
                     </Button>
                 ) : (
                     <Button type="button" onClick={handleSubmit} className="w-full" size="lg" disabled={isSubmitting}>
@@ -409,9 +417,3 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     </div>
   );
 }
- 
-    
-
-    
-
-    
