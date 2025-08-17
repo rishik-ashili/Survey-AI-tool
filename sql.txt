@@ -128,3 +128,41 @@ JOIN
     answers a ON sub.id = a.submission_id
 JOIN
     questions q ON a.question_id = q.id;
+
+
+-- Add new columns to the submissions table
+ALTER TABLE submissions
+ADD COLUMN latitude DOUBLE PRECISION,
+ADD COLUMN longitude DOUBLE PRECISION,
+ADD COLUMN city TEXT,
+ADD COLUMN country TEXT,
+ADD COLUMN device_type TEXT;
+
+-- Drop the existing view to recreate it
+DROP VIEW IF EXISTS survey_results;
+
+-- Recreate the view to include the new columns
+CREATE VIEW survey_results AS
+SELECT
+    s.id AS survey_id,
+    s.title AS survey_title,
+    sub.id AS submission_id,
+    sub.user_name,
+    sub.created_at AS submission_created_at,
+    sub.latitude,
+    sub.longitude,
+    sub.city,
+    sub.country,
+    sub.device_type,
+    q.id AS question_id,
+    q.text AS question_text,
+    q.type AS question_type,
+    a.value AS answer_value
+FROM
+    surveys s
+JOIN
+    submissions sub ON s.id = sub.survey_id
+JOIN
+    answers a ON sub.id = a.submission_id
+JOIN
+    questions q ON a.question_id = q.id;
