@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Send, User, VenetianMask, Loader2, CheckCircle, Sparkles, MessageCircleQuestion } from 'lucide-react';
+import { ArrowLeft, Send, User, VenetianMask, Loader2, CheckCircle, Sparkles, MessageCircleQuestion, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Input } from './ui/input';
@@ -41,6 +41,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [personalizedAnswers, setPersonalizedAnswers] = useState<Record<string, string>>({});
   const [isGeneratingPersonalized, setIsGeneratingPersonalized] = useState(false);
   const [isSubmittingPersonalized, setIsSubmittingPersonalized] = useState(false);
+  const [locationStatus, setLocationStatus] = useState('Detecting location...');
 
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -53,14 +54,19 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         let country = undefined;
 
         try {
+            setLocationStatus('Fetching location details...');
             const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
             if (response.ok) {
                 const data = await response.json();
                 city = data.address.city || data.address.town || data.address.village;
                 country = data.address.country;
+                setLocationStatus(`Submitting from: ${city}, ${country}`);
+            } else {
+                 setLocationStatus('Could not determine location.');
             }
         } catch (e) {
             console.warn("Could not fetch reverse geolocation data.", e);
+            setLocationStatus('Could not determine location.');
         }
 
         setMetadata({
@@ -77,11 +83,13 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         fetchMetadata,
         (error) => {
           console.warn(`Geolocation error: ${error.message}`);
+          setLocationStatus('Geolocation is disabled.');
           // Still set device type even if location fails
           setMetadata(prev => ({...prev, device_type: isMobile ? 'mobile' : 'desktop'}));
         }
       );
     } else {
+        setLocationStatus('Geolocation not supported.');
         setMetadata(prev => ({...prev, device_type: isMobile ? 'mobile' : 'desktop' }));
     }
   }, [isMobile]);
@@ -139,10 +147,14 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
 
   const getIterationCount = useCallback((question: SurveyQuestion): number => {
     if (!question.is_iterative || !question.iterative_source_question_id) return 1;
-    const sourceAnswer = answers[question.iterative_source_question_id];
+    
+    const sourceQuestion = Array.from(questionMap.values()).find(q => q.text === question.iterative_source_question_text);
+    if (!sourceQuestion) return 1;
+
+    const sourceAnswer = answers[sourceQuestion.id];
     const count = Number(sourceAnswer);
     return !isNaN(count) && count > 0 ? count : 0;
-  }, [answers]);
+  }, [answers, questionMap]);
 
   const isQuestionVisible = useCallback((question: SurveyQuestion): boolean => {
       // Sub-question visibility depends on parent answer
@@ -167,8 +179,11 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       }
 
       // Iterative question visibility depends on source question having a numeric answer
-      if (question.is_iterative && question.iterative_source_question_id) {
-          const sourceAnswer = answers[question.iterative_source_question_id];
+      if (question.is_iterative && question.iterative_source_question_text) {
+          const sourceQuestion = Array.from(questionMap.values()).find(q => q.text === question.iterative_source_question_text);
+          if(!sourceQuestion) return false;
+
+          const sourceAnswer = answers[sourceQuestion.id];
           const count = Number(sourceAnswer);
           if (isNaN(count) || count <= 0) {
               return false;
@@ -251,7 +266,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         toast({ title: "Survey Submitted!", description: "Thank you for your feedback." });
 
         if (survey.has_personalized_questions) {
-            triggerPersonalizedQuestions();
+            triggerPersonalizedQuestions(newSubmissionId);
         } else {
             // No personalized questions, just show success and back button
             setShowPersonalized(true); 
@@ -259,9 +274,10 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     }
   };
 
-  const triggerPersonalizedQuestions = async () => {
+  const triggerPersonalizedQuestions = async (currentSubmissionId: string) => {
     setIsGeneratingPersonalized(true);
     setShowPersonalized(true);
+    setSubmissionId(currentSubmissionId); // Make sure submissionId is set for the personalized submit
 
     const formattedAnswers = Object.entries(answers).map(([qId, ans]) => {
         const questionText = questionMap.get(qId)?.text || '';
@@ -364,22 +380,22 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   }
 
 
-  if (submissionId) {
+  if (submissionId && showPersonalized) {
     return (
          <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-            <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5 }}>
+            <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5 }} className="w-full">
                 <h2 className="text-2xl font-bold tracking-tight mb-4">Thank You!</h2>
                 <p className="text-muted-foreground mb-6">Your response has been recorded.</p>
                 
-                {showPersonalized && (
-                    <Card className="mt-8 text-left p-6 w-full max-w-lg">
+                {survey.has_personalized_questions && (
+                    <Card className="mt-8 text-left p-6 w-full max-w-lg mx-auto">
                        <CardHeader className="p-0 mb-4">
                          <CardTitle className="flex items-center gap-2"><Sparkles className="text-primary"/> One last thing... (Optional)</CardTitle>
                          <CardDescription>Based on your answers, we have a few more questions for you.</CardDescription>
                        </CardHeader>
                        <CardContent className="p-0 space-y-4">
                         {isGeneratingPersonalized ? (
-                             <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>
+                             <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /> Generating Questions...</div>
                         ) : personalizedQuestions.length > 0 ? (
                            <>
                            {personalizedQuestions.map((q, i) => (
@@ -390,7 +406,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                            ))}
                            <Button onClick={handlePersonalizedSubmit} disabled={isSubmittingPersonalized} className="w-full mt-4">
                                 {isSubmittingPersonalized ? <Loader2 className="animate-spin" /> : <Send />}
-                                Submit Final Answers
+                                {isSubmittingPersonalized ? 'Saving...' : 'Submit Final Answers'}
                            </Button>
                            </>
                         ) : (
@@ -418,7 +434,12 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="text-center text-2xl font-bold">{survey.title}</CardTitle>
-          <CardDescription className="text-center">Please answer the questions below.</CardDescription>
+          <CardDescription className="text-center flex flex-col items-center gap-2">
+            <span>Please answer the questions below.</span>
+            <span className="flex items-center gap-2 text-xs text-muted-foreground p-2 rounded-md bg-muted">
+              <MapPin className="h-4 w-4" /> {locationStatus}
+            </span>
+          </CardDescription>
         </CardHeader>
         <form>
             <CardContent className="space-y-6">
@@ -460,7 +481,5 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     </div>
   );
 }
-
-    
 
     
