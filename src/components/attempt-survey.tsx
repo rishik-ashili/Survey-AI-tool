@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useMemo, Fragment, useEffect } from 'react';
+import { useState, useMemo, Fragment, useEffect, useCallback } from 'react';
 import type { SavedSurvey, SurveyQuestion, SubmissionMetadata } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -33,6 +33,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [metadata, setMetadata] = useState<SubmissionMetadata>({});
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [visibility, setVisibility] = useState<QuestionVisibility>({});
+
   const { toast } = useToast();
 
   const questionMap = useMemo(() => {
@@ -55,26 +56,40 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       const newVisibility: QuestionVisibility = {};
       const answerHistory: { question: string; answer: string; }[] = [];
 
-      const processQuestions = async (questions: SurveyQuestion[]) => {
+      const processQuestions = async (questions: SurveyQuestion[], parentIsVisible: boolean) => {
         for (const question of questions) {
-          let shouldShow = true;
+          let shouldShow = parentIsVisible;
 
           // Rule 1: Sub-question visibility depends on parent answer
-          if (question.parent_question_id) {
+          if (shouldShow && question.parent_question_id) {
             const parentAnswer = answers[question.parent_question_id];
-            if (String(parentAnswer).toLowerCase() !== String(question.trigger_condition_value).toLowerCase()) {
+            // Using String() to handle different types and checking against trigger value
+            if (Array.isArray(parentAnswer) ? !parentAnswer.includes(String(question.trigger_condition_value)) : String(parentAnswer).toLowerCase() !== String(question.trigger_condition_value).toLowerCase()) {
               shouldShow = false;
             }
           }
-
-          // Rule 2: Use AI to determine if a question is relevant
-          if (shouldShow && answerHistory.length > 0) {
-             const aiCheck = await handleShouldAskQuestion({
-                question: question.text,
-                previousAnswers: answerHistory,
-             });
-             if (!aiCheck.shouldAsk) {
+          
+          // Rule 2: Iterative question visibility depends on source question having a numeric answer
+          if (shouldShow && question.is_iterative && question.iterative_source_question_id) {
+             const sourceAnswer = answers[question.iterative_source_question_id];
+             const count = Number(sourceAnswer);
+             if (isNaN(count) || count <= 0) {
                 shouldShow = false;
+             }
+          }
+
+          // Rule 3: Use AI to determine if a question is relevant
+          if (shouldShow && answerHistory.length > 0) {
+             try {
+                const aiCheck = await handleShouldAskQuestion({
+                    question: question.text,
+                    previousAnswers: answerHistory,
+                });
+                if (!aiCheck.shouldAsk) {
+                    shouldShow = false;
+                }
+             } catch(e) {
+                console.error("AI visibility check failed", e);
              }
           }
 
@@ -82,17 +97,20 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
           
           // If the question is visible, add its answer to history for subsequent checks
           if (shouldShow && answers[question.id] !== undefined) {
-             answerHistory.push({ question: question.text, answer: String(answers[question.id])});
+             const answerValue = Array.isArray(answers[question.id]) ? answers[question.id].join(', ') : String(answers[question.id]);
+             if (answerValue) {
+                answerHistory.push({ question: question.text, answer: answerValue});
+             }
           }
           
           // Recursively process sub-questions
-          if (shouldShow && question.sub_questions) {
-            await processQuestions(question.sub_questions);
+          if (question.sub_questions) {
+            await processQuestions(question.sub_questions, shouldShow);
           }
         }
       };
 
-      await processQuestions(survey.questions);
+      await processQuestions(survey.questions, true);
       setVisibility(newVisibility);
     };
     
@@ -120,6 +138,12 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   };
   
   const handleMultipleChoiceChange = (questionId: string, optionText: string, isChecked: boolean) => {
+    setErrors(prev => {
+      const newErrors = {...prev};
+      delete newErrors[questionId];
+      return newErrors;
+    });
+
     const currentAnswers = (answers[questionId] as string[] | undefined) || [];
     const newAnswers = isChecked
       ? [...currentAnswers, optionText]
@@ -127,7 +151,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     handleAnswerChange(questionId, newAnswers);
   };
 
-  const getIterationCount = (question: SurveyQuestion) => {
+  const getIterationCount = (question: SurveyQuestion): number => {
     if (!question.is_iterative || !question.iterative_source_question_id) return 1;
     const sourceAnswer = answers[question.iterative_source_question_id];
     const count = Number(sourceAnswer);
@@ -145,17 +169,26 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     const questionsToValidate = Array.from(questionMap.values()).filter(q => visibility[q.id]);
 
     for (const question of questionsToValidate) {
-      const answer = answers[question.id];
-      // Basic required check
-      if (answer === undefined || answer === null || answer === '' || (Array.isArray(answer) && answer.length === 0)) {
-          allValid = false;
-          newErrors[question.id] = "This question is required.";
-          continue; // Skip AI validation if it's empty
-      }
+        const answer = answers[question.id];
+        const iterationCount = getIterationCount(question);
+        const isIterative = question.is_iterative && iterationCount > 0;
+
+        if(isIterative) {
+            for(let i = 0; i < iterationCount; i++) {
+                const iterValue = (answer?.values || [])[i];
+                if(iterValue === undefined || iterValue === null || iterValue === '') {
+                    allValid = false;
+                    newErrors[`${question.id}-${i}`] = 'This field is required.';
+                }
+            }
+        } else if (answer === undefined || answer === null || answer === '' || (Array.isArray(answer) && answer.length === 0)) {
+            allValid = false;
+            newErrors[question.id] = "This question is required.";
+            continue; // Skip AI validation if it's empty
+        }
       
       // AI validation for text inputs
-      if (question.type === 'text') {
-        if (answer) {
+      if (question.type === 'text' && answer && !isIterative) {
           const validationResult = await handleValidateAnswer({
             question: question.text,
             answer: String(answer),
@@ -165,7 +198,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
             allValid = false;
             newErrors[question.id] = validationResult.suggestion || "This answer seems invalid.";
           }
-        }
       }
     }
 
@@ -211,8 +243,8 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
 
                   return (
                     <div key={uniqueId} className="space-y-3 animate-fade-in py-4">
-                      <Label htmlFor={`answer-${uniqueId}`} className="text-base flex gap-2">
-                        <span>{!isSubQuestion && `${index + 1}.`}</span> 
+                       <Label htmlFor={`answer-${uniqueId}`} className="text-base flex gap-2">
+                        {(!isIterative && !isSubQuestion) && <span>{index + 1}.</span>}
                         {question.text}
                         {isIterative && ` (Entry ${iterIndex + 1})`}
                       </Label>
@@ -246,7 +278,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                       })()}
                       {error && <p className="text-sm text-destructive mt-2">{error}</p>}
                       
-                      {question.sub_questions?.map((sub, subIndex) => renderQuestion(sub, subIndex, true))}
+                      {!isIterative && question.sub_questions?.map((sub, subIndex) => renderQuestion(sub, subIndex, true))}
                     </div>
                   );
               })}
@@ -316,5 +348,3 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     </div>
   );
 }
-
-    
