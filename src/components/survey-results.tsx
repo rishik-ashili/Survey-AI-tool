@@ -7,13 +7,15 @@ import { getSurveyResults } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ArrowLeft, Loader2, BarChartHorizontalBig, User, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Loader2, BarChartHorizontalBig, User, ChevronDown, PieChart, LineChart } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
 } from "@/components/ui/chart"
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts"
+import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Cell, Pie, Legend, Line } from "recharts"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { format } from 'date-fns';
 
@@ -76,7 +78,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     return survey.questions.map(question => {
         const questionResults = results.filter(r => r.question_id === question.id);
         
-        let data: { name: string; value: number, fill: string }[] = [];
+        let data: { name: string; value: number, fill?: string }[] = [];
 
         if (question.type === 'yes-no' || question.type === 'multiple-choice') {
             const counts: Record<string, number> = {};
@@ -102,16 +104,12 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                    }
                 }
             });
-            data = Object.entries(counts).map(([name, value], index) => ({ name: name, value, fill: COLORS[index % COLORS.length] }));
+            data = Object.entries(counts).map(([name, value]) => ({ name, value }));
         } else if (question.type === 'number') {
-            const counts: Record<string, number> = {};
-             questionResults.forEach(r => {
-                const num = r.answer_value;
-                counts[num] = (counts[num] || 0) + 1;
-            });
-            data = Object.entries(counts)
-                .sort(([a], [b]) => Number(a) - Number(b))
-                .map(([name, value], index) => ({ name, value, fill: COLORS[index % COLORS.length] }));
+            // Data for line chart should be a series of points
+            data = questionResults
+                .map((r, index) => ({ name: `Sub. ${index + 1}`, value: Number(r.answer_value) || 0 }))
+                .sort((a, b) => a.value - b.value);
         }
         
         return {
@@ -126,16 +124,60 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     const config: any = {};
     aggregatedResults.forEach(question => {
         if(question.data) {
-            question.data.forEach(d => {
+            question.data.forEach((d, i) => {
                 config[d.name] = {
                     label: d.name,
-                    color: d.fill
+                    color: COLORS[i % COLORS.length]
                 }
             })
         }
     });
+     config.value = { label: 'Value' };
     return config;
   }, [aggregatedResults]);
+
+  const renderChart = (question: (typeof aggregatedResults)[0]) => {
+     if (question.totalSubmissions === 0) {
+        return <p className="text-center text-muted-foreground py-8">No data for this question yet.</p>;
+     }
+
+     switch (question.type) {
+         case 'yes-no':
+         case 'multiple-choice':
+            return (
+                <ChartContainer config={chartConfig} className="min-h-60 w-full aspect-square">
+                    <ResponsiveContainer width="100%" height={300}>
+                         <PieChart>
+                            <Tooltip content={<ChartTooltipContent nameKey="name" />} />
+                            <Pie data={question.data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                               {question.data.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                               ))}
+                            </Pie>
+                            <Legend />
+                         </PieChart>
+                    </ResponsiveContainer>
+                </ChartContainer>
+            );
+        case 'number':
+            return (
+                <ChartContainer config={chartConfig} className="min-h-60 w-full">
+                    <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={question.data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="name" />
+                            <YAxis />
+                            <Tooltip content={<ChartTooltipContent />} />
+                            <Legend />
+                            <Line type="monotone" dataKey="value" stroke="hsl(var(--chart-1))" activeDot={{ r: 8 }} />
+                        </LineChart>
+                    </ResponsiveContainer>
+                </ChartContainer>
+            )
+        default:
+            return null;
+     }
+  }
 
 
   return (
@@ -162,28 +204,17 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
               <div>
                   <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><BarChartHorizontalBig />Charts</h3>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                       {aggregatedResults.filter(q => q.totalSubmissions > 0 && q.type !== 'text').map(question => (
+                       {aggregatedResults.filter(q => q.type !== 'text').map(question => (
                            <Card key={question.id}>
                                <CardHeader>
-                                   <CardTitle className="text-base">{question.text}</CardTitle>
+                                   <CardTitle className="text-base flex items-center gap-2">
+                                       {question.type === 'number' && <LineChart className="h-5 w-5 text-muted-foreground" />}
+                                       {(question.type === 'yes-no' || question.type === 'multiple-choice') && <PieChart className="h-5 w-5 text-muted-foreground" />}
+                                       {question.text}
+                                    </CardTitle>
                                </CardHeader>
                                <CardContent>
-                                   <ChartContainer config={chartConfig} className="min-h-60 w-full">
-                                         <ResponsiveContainer width="100%" height={Math.max(240, question.data.length * 40)}>
-                                             <BarChart data={question.data} layout="vertical" margin={{ left: 10, right: 20, top: 10, bottom: 10 }}>
-                                                <CartesianGrid strokeDasharray="3 3" />
-                                                <XAxis type="number" allowDecimals={false} />
-                                                <YAxis dataKey="name" type="category" width={100} interval={0} style={{ fontSize: '0.8rem', whiteSpace: 'normal', wordWrap: 'break-word' }}/>
-                                                <Tooltip
-                                                  cursor={{fill: 'hsl(var(--muted))'}}
-                                                  content={<ChartTooltipContent />}
-                                                />
-                                                <Bar dataKey="value" name="Count" radius={4}>
-                                                  {question.data.map(d => <Cell key={d.name} fill={d.fill} />)}
-                                                </Bar>
-                                            </BarChart>
-                                         </ResponsiveContainer>
-                                   </ChartContainer>
+                                    {renderChart(question)}
                                </CardContent>
                            </Card>
                        ))}
@@ -195,7 +226,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                 <div className="space-y-4">
                   {submissions.map(sub => (
                     <Collapsible key={sub.id} className="border rounded-lg">
-                      <CollapsibleTrigger className="w-full p-4 flex justify-between items-center cursor-pointer hover:bg-muted/50 rounded-t-lg">
+                      <CollapsibleTrigger className="w-full p-4 flex justify-between items-center cursor-pointer hover:bg-muted/50 rounded-t-lg data-[state=open]:bg-muted/50">
                          <div className="text-left">
                            <p className="font-medium">{sub.userName}</p>
                            <p className="text-sm text-muted-foreground">{format(new Date(sub.createdAt), "PPP p")}</p>
@@ -208,7 +239,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                               {sub.answers.map((ans, i) => (
                                 <li key={i} className="text-sm">
                                   <strong className="font-medium">{ans.questionText}</strong>
-                                  <p className="text-muted-foreground mt-1">{ans.answerValue}</p>
+                                  <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{ans.answerValue}</p>
                                 </li>
                               ))}
                             </ul>
