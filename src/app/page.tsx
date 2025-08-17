@@ -89,7 +89,6 @@ export default function Home() {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen">
         <Sidebar>
           <SidebarHeader>
             <Logo />
@@ -102,28 +101,25 @@ export default function Home() {
           </SidebarContent>
         </Sidebar>
         <SidebarInset>
-          <div className="h-full">
             {isLoading ? (
               <LoadingState />
             ) : questions.length === 0 ? (
               <EmptyState />
             ) : (
               <div className="grid md:grid-cols-2 gap-0 h-full">
-                <div className="bg-background/70 p-4 sm:p-6 md:p-8 overflow-y-auto h-[calc(100vh-0px)]">
+                <div className="bg-background/70 p-4 sm:p-6 md:p-8 overflow-y-auto h-screen">
                   <SurveyBuilder
                     title={surveyTitle}
                     questions={questions}
                     setQuestions={setQuestions}
                   />
                 </div>
-                <div className="bg-card/50 p-4 sm:p-6 md:p-8 overflow-y-auto h-[calc(100vh-0px)] border-l">
+                <div className="bg-card/50 p-4 sm:p-6 md:p-8 overflow-y-auto h-screen border-l">
                   <SurveyPreview title={surveyTitle} questions={questions} />
                 </div>
               </div>
             )}
-          </div>
         </SidebarInset>
-      </div>
     </SidebarProvider>
   );
 }
