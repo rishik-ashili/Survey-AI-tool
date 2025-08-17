@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, Loader2, BarChartHorizontalBig, PieChart, User } from 'lucide-react';
+import { ArrowLeft, Loader2, BarChartHorizontalBig, PieChart, User, Cloud } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
@@ -17,6 +17,7 @@ import {
   ChartLegendContent,
 } from "@/components/ui/chart"
 import { Bar, BarChart, Pie, ResponsiveContainer, Cell, XAxis, YAxis } from "recharts"
+import ReactWordcloud from 'react-wordcloud';
 
 type SurveyResultsProps = {
   survey: SavedSurvey;
@@ -24,6 +25,31 @@ type SurveyResultsProps = {
 };
 
 const COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
+
+const WordCloud = ({ words }: { words: { text: string; value: number }[] }) => {
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  if (!isClient) {
+    return null;
+  }
+
+  return (
+    <ReactWordcloud
+      words={words}
+      options={{
+        rotations: 2,
+        rotationAngles: [0, 0],
+        fontSizes: [16, 60],
+        padding: 1,
+      }}
+    />
+  );
+};
+
 
 export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
   const [results, setResults] = useState<SurveyResult[]>([]);
@@ -77,11 +103,11 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         const questionResults = results.filter(r => r.question_id === question.id);
         
         let data: { name: string; value: number, fill: string }[] = [];
+        let wordCloudData: {text: string, value: number}[] = [];
 
         if (question.type === 'yes-no' || question.type === 'multiple-choice') {
             const counts: Record<string, number> = {};
             
-            // Pre-fill counts for all possible options to ensure consistent color mapping
             const allOptions = question.type === 'yes-no' ? ['yes', 'no'] : question.options?.map(o => o.text) || [];
             allOptions.forEach(opt => counts[opt] = 0);
 
@@ -93,7 +119,6 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                         if (counts[ans] !== undefined) {
                             counts[ans]++;
                         } else {
-                            // handle cases where an answer might not be in the original options (edge case)
                             counts[ans] = 1;
                         }
                     });
@@ -110,12 +135,24 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
             const numbers = questionResults.map(r => Number(r.answer_value)).filter(n => !isNaN(n));
             const avg = numbers.length > 0 ? numbers.reduce((a, b) => a + b, 0) / numbers.length : 0;
             data = [{ name: 'Average', value: parseFloat(avg.toFixed(2)), fill: COLORS[0] }];
+        } else if (question.type === 'text') {
+            const wordCounts: Record<string, number> = {};
+            questionResults.forEach(r => {
+                // simple word tokenization
+                r.answer_value.toLowerCase().split(/\s+/).forEach(word => {
+                    if (word.length > 2) { // filter out small words
+                        wordCounts[word] = (wordCounts[word] || 0) + 1;
+                    }
+                })
+            });
+            wordCloudData = Object.entries(wordCounts).map(([text, value]) => ({text, value}));
         }
         
         return {
             ...question,
             totalSubmissions: questionResults.length,
             data,
+            wordCloudData,
         };
     });
   }, [survey, results]);
@@ -160,15 +197,17 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
               <div>
                   <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><PieChart />Charts</h3>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                       {aggregatedResults.filter(q => q.type !== 'text' && q.data.length > 0).map(question => (
+                       {aggregatedResults.filter(q => q.totalSubmissions > 0).map(question => (
                            <Card key={question.id}>
                                <CardHeader>
                                    <CardTitle className="text-base">{question.text}</CardTitle>
                                </CardHeader>
                                <CardContent>
                                    <ChartContainer config={chartConfig} className="h-60">
-                                       <ResponsiveContainer width="100%" height="100%">
-                                        {question.type === 'number' ? (
+                                     {question.type === 'text' ? (
+                                        <WordCloud words={question.wordCloudData} />
+                                     ) : question.type === 'number' ? (
+                                         <ResponsiveContainer width="100%" height="100%">
                                              <BarChart data={question.data} layout="vertical" margin={{ left: 10, right: 40 }}>
                                                 <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} />
                                                 <XAxis type="number" hide />
@@ -180,7 +219,9 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                                   content={<ChartTooltipContent hideLabel />} 
                                                 />
                                             </BarChart>
-                                        ) : (
+                                         </ResponsiveContainer>
+                                     ) : (
+                                         <ResponsiveContainer width="100%" height="100%">
                                             <PieChart>
                                                 <Pie data={question.data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
                                                     {question.data.map((entry) => (
@@ -190,8 +231,8 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                                 <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
                                                 <ChartLegend content={<ChartLegendContent nameKey="name" />} />
                                             </PieChart>
-                                        )}
-                                       </ResponsiveContainer>
+                                         </ResponsiveContainer>
+                                     )}
                                    </ChartContainer>
                                </CardContent>
                            </Card>
