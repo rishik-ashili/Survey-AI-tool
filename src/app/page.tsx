@@ -40,7 +40,7 @@ export default function Home() {
       if (result && result.surveyQuestions.length > 0) {
         setQuestions(
           result.surveyQuestions.map((q, i) => ({
-            id: `q-${Date.now()}-${i}`,
+            id: `q-${Date.now()}-${i}`, // Temporary ID for client-side
             text: q.text,
             type: q.type,
           }))
@@ -83,7 +83,7 @@ export default function Home() {
 
       if (result && result.surveyQuestions.length > 0) {
         const newQuestions = result.surveyQuestions.map((q, i) => ({
-            id: `q-${Date.now()}-${i}`,
+            id: `q-${Date.now()}-${i}`, // Temporary ID
             text: q.text,
             type: q.type,
         }));
@@ -110,6 +110,12 @@ export default function Home() {
     } finally {
         setIsLoadingMore(false);
     }
+  }
+
+  const resetGenerator = () => {
+    setQuestions([]);
+    setSurveyTitle("Your Awesome Survey");
+    setLastGenerationData(null);
   }
 
 
@@ -173,7 +179,10 @@ export default function Home() {
                   title={surveyTitle}
                   questions={questions}
                   setQuestions={setQuestions}
-                  onSaveSuccess={() => setActiveTab("saved")}
+                  onSaveSuccess={() => {
+                    setActiveTab("saved");
+                    resetGenerator();
+                  }}
                   onAddMore={() => {
                     const dialogTrigger = document.getElementById('add-more-dialog-trigger');
                     dialogTrigger?.click();

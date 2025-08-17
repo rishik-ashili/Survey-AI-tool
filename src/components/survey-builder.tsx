@@ -4,11 +4,10 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Download, Trash2, Save, PlusCircle, Loader2, Type, Hash, Binary } from "lucide-react";
 
-import type { SurveyQuestion, SavedSurvey, QuestionType } from "@/types";
+import type { SurveyQuestion, QuestionType } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { exportToCsv } from "@/lib/csv";
-import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useToast } from "@/hooks/use-toast";
 import {
   Select,
@@ -18,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "./ui/textarea";
+import { saveSurvey } from "@/app/actions";
 
 
 type SurveyBuilderProps = {
@@ -37,8 +37,8 @@ export default function SurveyBuilder({
   onAddMore,
   isLoadingMore,
 }: SurveyBuilderProps) {
-  const [savedSurveys, setSavedSurveys] = useLocalStorage<SavedSurvey[]>("saved-surveys", []);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
   const handleUpdateQuestionText = (id: string, text: string) => {
@@ -57,7 +57,7 @@ export default function SurveyBuilder({
     exportToCsv(questions, title);
   };
 
-  const handleSaveSurvey = () => {
+  const handleSaveSurvey = async () => {
     if (questions.length === 0) {
       toast({
         variant: "destructive",
@@ -67,20 +67,24 @@ export default function SurveyBuilder({
       return;
     }
 
-    const newSurvey: SavedSurvey = {
-      id: `survey-${Date.now()}`,
-      title,
-      questions,
-      createdAt: new Date().toISOString(),
-    };
+    setIsSaving(true);
+    const questionsToSave = questions.map(({id, ...q}) => q);
+    const { data, error } = await saveSurvey(title, questionsToSave);
+    setIsSaving(false);
 
-    setSavedSurveys([...savedSurveys, newSurvey]);
-
-    toast({
-      title: "Survey Saved!",
-      description: "Your survey has been saved successfully.",
-    });
-    onSaveSuccess();
+    if (error || !data) {
+       toast({
+        variant: "destructive",
+        title: "Save Failed",
+        description: error || "An unknown error occurred.",
+      });
+    } else {
+      toast({
+        title: "Survey Saved!",
+        description: "Your survey has been saved successfully.",
+      });
+      onSaveSuccess();
+    }
   };
   
   const questionTypeIcons: Record<QuestionType, React.ReactNode> = {
@@ -103,9 +107,9 @@ export default function SurveyBuilder({
             {isLoadingMore ? <Loader2 className="animate-spin" /> : <PlusCircle />}
             Add 5 More
           </Button>
-          <Button onClick={handleSaveSurvey} disabled={questions.length === 0}>
-            <Save className="mr-2 h-4 w-4" />
-            Save Survey
+          <Button onClick={handleSaveSurvey} disabled={questions.length === 0 || isSaving}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            {isSaving ? 'Saving...' : 'Save Survey'}
           </Button>
           <Button onClick={handleExport} disabled={questions.length === 0} variant="outline">
             <Download className="mr-2 h-4 w-4" />

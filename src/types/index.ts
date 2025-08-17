@@ -2,14 +2,33 @@
 export type QuestionType = 'text' | 'number' | 'yes-no';
 
 export interface SurveyQuestion {
-  id: string;
+  id: string; // This will be a UUID from Supabase
   text: string;
   type: QuestionType;
+  created_at?: string; // from Supabase
+  survey_id?: string; // from Supabase
 }
 
 export interface SavedSurvey {
-  id: string;
+  id: string; // This will be a UUID from Supabase
   title: string;
   questions: SurveyQuestion[];
-  createdAt: string;
+  created_at: string; // from Supabase
+}
+
+// Represents a user's submission for a survey
+export interface SurveySubmission {
+  id: string;
+  survey_id: string;
+  user_name?: string; // Optional for anonymous submissions
+  created_at: string;
+  answers: SubmissionAnswer[];
+}
+
+// Represents a single answer within a submission
+export interface SubmissionAnswer {
+    id: string;
+    submission_id: string;
+    question_id: string;
+    value: string; // Stored as text, parsed based on question type
 }

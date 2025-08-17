@@ -1,17 +1,15 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { PlayCircle, Trash2, FileText, ChevronDown, ChevronUp } from 'lucide-react';
-
-import { useLocalStorage } from '@/hooks/use-local-storage';
+import { PlayCircle, Trash2, FileText, ChevronDown, Loader2 } from 'lucide-react';
+import { getSavedSurveys, deleteSurvey } from '@/app/actions';
 import type { SavedSurvey } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
@@ -28,29 +26,78 @@ import {
 } from '@/components/ui/alert-dialog';
 import AttemptSurvey from '@/components/attempt-survey';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { useToast } from '@/hooks/use-toast';
 
 
 export default function SavedSurveysList() {
-  const [surveys, setSurveys] = useLocalStorage<SavedSurvey[]>('saved-surveys', []);
+  const [surveys, setSurveys] = useState<SavedSurvey[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [attemptingSurvey, setAttemptingSurvey] = useState<SavedSurvey | null>(null);
+  const { toast } = useToast();
 
-  const handleDelete = (id: string) => {
-    setSurveys(surveys.filter((s) => s.id !== id));
+  useEffect(() => {
+    fetchSurveys();
+  }, []);
+
+  const fetchSurveys = async () => {
+    setIsLoading(true);
+    const { data, error } = await getSavedSurveys();
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Could not fetch saved surveys.",
+      });
+    } else if (data) {
+      setSurveys(data);
+    }
+    setIsLoading(false);
+  }
+
+  const handleDelete = async (id: string) => {
+    const { error } = await deleteSurvey(id);
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Could not delete survey.",
+      });
+    } else {
+      setSurveys(surveys.filter((s) => s.id !== id));
+      toast({
+        title: "Success",
+        description: "Survey deleted.",
+      });
+    }
   };
   
   if (attemptingSurvey) {
-    return <AttemptSurvey survey={attemptingSurvey} onBack={() => setAttemptingSurvey(null)} />;
+    return <AttemptSurvey survey={attemptingSurvey} onBack={() => {
+      setAttemptingSurvey(null)
+      fetchSurveys();
+    }} />;
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex-1">
-        <h2 className="text-2xl font-bold tracking-tight">Saved Surveys</h2>
-        <p className="text-muted-foreground">
-          Here are the surveys you've saved. You can attempt or delete them.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Saved Surveys</h2>
+          <p className="text-muted-foreground">
+            Here are the surveys you've saved. You can attempt or delete them.
+          </p>
+        </div>
+         <Button onClick={fetchSurveys} variant="outline" size="sm" disabled={isLoading}>
+          {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Refresh
+        </Button>
       </div>
-      {surveys.length === 0 ? (
+
+      {isLoading ? (
+        <div className="flex items-center justify-center p-12">
+            <Loader2 className="w-12 h-12 text-muted-foreground/50 animate-spin" />
+        </div>
+      ) : surveys.length === 0 ? (
         <Card className="flex flex-col items-center justify-center p-12 text-center">
             <FileText className="w-16 h-16 text-muted-foreground/50 mb-4" />
             <h3 className="text-xl font-semibold">No Saved Surveys Yet</h3>
@@ -60,7 +107,7 @@ export default function SavedSurveysList() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {surveys.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((survey) => (
+          {surveys.map((survey) => (
             <Collapsible key={survey.id} defaultOpen={false}>
             <Card>
               <CardHeader>
@@ -68,7 +115,7 @@ export default function SavedSurveysList() {
                   <div>
                     <CardTitle>{survey.title}</CardTitle>
                     <CardDescription>
-                      Saved {formatDistanceToNow(new Date(survey.createdAt), { addSuffix: true })} &bull; {survey.questions.length} questions
+                      Saved {formatDistanceToNow(new Date(survey.created_at), { addSuffix: true })} &bull; {survey.questions.length} questions
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">

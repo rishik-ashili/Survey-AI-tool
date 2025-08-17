@@ -8,10 +8,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Send, Minus, Plus } from 'lucide-react';
+import { ArrowLeft, Send, Minus, Plus, User, VenetianMask } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Input } from './ui/input';
+import { Checkbox } from './ui/checkbox';
+import { submitSurvey } from '@/app/actions';
 
 type AttemptSurveyProps = {
   survey: SavedSurvey;
@@ -21,13 +23,16 @@ type AttemptSurveyProps = {
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [answers, setAnswers] = useState<Record<string, string | number>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userName, setUserName] = useState('');
+  const [isAnonymous, setIsAnonymous] = useState(false);
   const { toast } = useToast();
 
   const handleAnswerChange = (questionId: string, value: string | number) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (Object.keys(answers).length < survey.questions.length) {
          toast({
@@ -37,12 +42,32 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         });
         return;
     }
-    console.log("Survey Submitted:", { surveyId: survey.id, answers });
-    setSubmitted(true);
-    toast({
-        title: "Survey Submitted!",
-        description: "Thank you for your feedback.",
-    });
+    if (!isAnonymous && !userName) {
+        toast({
+            variant: "destructive",
+            title: "Name Required",
+            description: "Please enter your name or check the anonymous box.",
+        });
+        return;
+    }
+
+    setIsSubmitting(true);
+    const { error } = await submitSurvey(survey.id, answers, isAnonymous ? undefined : userName);
+    setIsSubmitting(false);
+
+    if (error) {
+         toast({
+            variant: "destructive",
+            title: "Submission Failed",
+            description: "Something went wrong. Please try again.",
+        });
+    } else {
+        setSubmitted(true);
+        toast({
+            title: "Survey Submitted!",
+            description: "Thank you for your feedback.",
+        });
+    }
   };
   
   const renderInput = (question: SavedSurvey['questions'][0]) => {
@@ -129,6 +154,30 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         </CardHeader>
         <form onSubmit={handleSubmit}>
             <CardContent className="space-y-6">
+              <div className="space-y-3 p-4 border rounded-lg bg-background">
+                  <Label htmlFor="user-name">Your Name</Label>
+                  <div className="flex items-center gap-4">
+                    <div className="relative flex-1">
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
+                      <Input 
+                        id="user-name" 
+                        placeholder="John Doe" 
+                        value={userName} 
+                        onChange={(e) => setUserName(e.target.value)} 
+                        disabled={isAnonymous}
+                        className="pl-9"
+                        required={!isAnonymous}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2 pt-2">
+                      <Checkbox id="anonymous" checked={isAnonymous} onCheckedChange={(checked) => setIsAnonymous(!!checked)} />
+                      <Label htmlFor="anonymous" className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <VenetianMask className="h-4 w-4" />
+                        Submit Anonymously
+                      </Label>
+                  </div>
+              </div>
              <AnimatePresence>
               {survey.questions.map((question, index) => (
                  <motion.div
@@ -149,9 +198,9 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
               </AnimatePresence>
             </CardContent>
             <CardFooter>
-                 <Button type="submit" className="w-full" size="lg">
-                    <Send className="mr-2"/>
-                    Submit Survey
+                 <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
+                    {isSubmitting ? <Send className="mr-2 animate-pulse" /> : <Send className="mr-2"/>}
+                    {isSubmitting ? 'Submitting...' : 'Submit Survey'}
                 </Button>
             </CardFooter>
         </form>
