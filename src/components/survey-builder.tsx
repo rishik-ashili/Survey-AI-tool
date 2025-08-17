@@ -1,30 +1,63 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, Trash2 } from "lucide-react";
+import { Download, Trash2, Save } from "lucide-react";
 
-import type { SurveyQuestion } from "@/types";
+import type { SurveyQuestion, SavedSurvey } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { exportToCsv } from "@/lib/csv";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useToast } from "@/hooks/use-toast";
 
 type SurveyBuilderProps = {
   title: string;
   questions: SurveyQuestion[];
   setQuestions: React.Dispatch<React.SetStateAction<SurveyQuestion[]>>;
+  onSaveSuccess: () => void;
 };
 
 export default function SurveyBuilder({
   title,
   questions,
   setQuestions,
+  onSaveSuccess,
 }: SurveyBuilderProps) {
+  const [savedSurveys, setSavedSurveys] = useLocalStorage<SavedSurvey[]>("saved-surveys", []);
+  const { toast } = useToast();
+
   const handleDelete = (id: string) => {
     setQuestions((prev) => prev.filter((q) => q.id !== id));
   };
 
   const handleExport = () => {
     exportToCsv(questions, title);
+  };
+
+  const handleSaveSurvey = () => {
+    if (questions.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Cannot Save",
+        description: "You cannot save an empty survey.",
+      });
+      return;
+    }
+
+    const newSurvey: SavedSurvey = {
+      id: `survey-${Date.now()}`,
+      title,
+      questions,
+      createdAt: new Date().toISOString(),
+    };
+
+    setSavedSurveys([...savedSurveys, newSurvey]);
+
+    toast({
+      title: "Survey Saved!",
+      description: "Your survey has been saved successfully.",
+    });
+    onSaveSuccess();
   };
 
   return (
@@ -36,10 +69,16 @@ export default function SurveyBuilder({
             Editing: {title}
           </p>
         </div>
-        <Button onClick={handleExport} disabled={questions.length === 0}>
-          <Download className="mr-2 h-4 w-4" />
-          Export to CSV
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handleSaveSurvey} disabled={questions.length === 0}>
+            <Save className="mr-2 h-4 w-4" />
+            Save Survey
+          </Button>
+          <Button onClick={handleExport} disabled={questions.length === 0} variant="outline">
+            <Download className="mr-2 h-4 w-4" />
+            Export to CSV
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-3">

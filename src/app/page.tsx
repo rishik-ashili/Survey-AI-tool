@@ -1,19 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Loader2, Sparkles, PencilRuler, Eye } from "lucide-react";
+import { FileText, Loader2, Sparkles, PencilRuler, Eye, Save, ListChecks } from "lucide-react";
 
-import type { SurveyQuestion } from "@/types";
+import type { SurveyQuestion, SavedSurvey } from "@/types";
 import { handleGenerateSurvey } from "@/app/actions";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import Logo from "@/components/logo";
 import SurveyGeneratorForm from "@/components/survey-generator-form";
 import SurveyBuilder from "@/components/survey-builder";
 import SurveyPreview from "@/components/survey-preview";
+import SavedSurveysList from "@/components/saved-surveys-list";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Home() {
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
@@ -93,6 +92,9 @@ export default function Home() {
             <TabsTrigger value="preview" disabled={questions.length === 0}>
               <Eye className="mr-2" /> Preview
             </TabsTrigger>
+            <TabsTrigger value="saved">
+              <ListChecks className="mr-2" /> Saved
+            </TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="w-40" />
@@ -115,6 +117,7 @@ export default function Home() {
                   title={surveyTitle}
                   questions={questions}
                   setQuestions={setQuestions}
+                  onSaveSuccess={() => setActiveTab("saved")}
                 />
               </div>
              )}
@@ -124,9 +127,14 @@ export default function Home() {
               <SurveyPreview title={surveyTitle} questions={questions} />
             </div>
           </TabsContent>
+          <TabsContent value="saved" className="flex-1 overflow-y-auto p-4 md:p-8">
+            <div className="max-w-4xl mx-auto">
+              <SavedSurveysList />
+            </div>
+          </TabsContent>
 
           <div className="block md:hidden p-2 border-t bg-background">
-             <TabsList className="grid w-full grid-cols-3">
+             <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="generator">
                   <Sparkles />
                 </TabsTrigger>
@@ -135,6 +143,9 @@ export default function Home() {
                 </TabsTrigger>
                 <TabsTrigger value="preview" disabled={questions.length === 0}>
                   <Eye />
+                </TabsTrigger>
+                 <TabsTrigger value="saved">
+                  <ListChecks />
                 </TabsTrigger>
               </TabsList>
           </div>
