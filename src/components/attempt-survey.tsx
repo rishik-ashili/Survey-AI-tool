@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Send, User, VenetianMask, Loader2 } from 'lucide-react';
+import { ArrowLeft, Send, User, VenetianMask, Loader2, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Input } from './ui/input';
@@ -34,6 +34,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [visibility, setVisibility] = useState<QuestionVisibility>({});
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isValidated, setIsValidated] = useState(false);
 
   const { toast } = useToast();
 
@@ -60,33 +61,35 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       const processQuestions = async (questions: SurveyQuestion[]) => {
         for (const question of questions) {
            try {
-              const aiCheck = await handleShouldAskQuestion({
-                  question: question.text,
-                  previousAnswers: answerHistory,
-              });
-              initialVisibility[question.id] = aiCheck.shouldAsk;
+              // Only check top-level questions initially
+              if (!question.parent_question_id) {
+                const aiCheck = await handleShouldAskQuestion({
+                    question: question.text,
+                    previousAnswers: answerHistory,
+                });
+                initialVisibility[question.id] = aiCheck.shouldAsk;
+              } else {
+                 initialVisibility[question.id] = true; // Sub-questions are visible by default, parent logic handles showing them
+              }
            } catch(e) {
               console.error("AI visibility check failed, defaulting to visible", e);
               initialVisibility[question.id] = true;
            }
-
-          if (question.sub_questions) {
-            await processQuestions(question.sub_questions);
-          }
         }
       };
 
-      await processQuestions(survey.questions);
+      await processQuestions(Array.from(questionMap.values()));
       setVisibility(initialVisibility);
       setIsInitializing(false);
     };
 
     initializeVisibility();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [survey.questions]); // Only run on mount
+  }, [survey.questions, questionMap]);
 
 
   const handleAnswerChange = (questionId: string, value: any, isIterative: boolean = false, iterationIndex?: number) => {
+    setIsValidated(false); // Any change invalidates the form
     setErrors(prev => {
       const newErrors = {...prev};
       const errorKey = isIterative && iterationIndex !== undefined ? `${questionId}-${iterationIndex}` : questionId;
@@ -106,6 +109,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   };
 
   const handleMultipleChoiceChange = (questionId: string, optionText: string, isChecked: boolean) => {
+    setIsValidated(false); // Any change invalidates the form
     setErrors(prev => {
       const newErrors = {...prev};
       delete newErrors[questionId];
@@ -119,14 +123,14 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     handleAnswerChange(questionId, newAnswers);
   };
 
-  const getIterationCount = (question: SurveyQuestion): number => {
+  const getIterationCount = useCallback((question: SurveyQuestion): number => {
     if (!question.is_iterative || !question.iterative_source_question_id) return 1;
     const sourceAnswer = answers[question.iterative_source_question_id];
     const count = Number(sourceAnswer);
     return !isNaN(count) && count > 0 ? count : 0;
-  };
+  }, [answers]);
 
-  const isQuestionVisible = (question: SurveyQuestion): boolean => {
+  const isQuestionVisible = useCallback((question: SurveyQuestion): boolean => {
       // Rule 1: Check initial AI-based visibility
       if (visibility[question.id] === false) {
           return false;
@@ -139,6 +143,10 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
               return false;
           }
           const parentAnswer = answers[question.parent_question_id];
+          if (parentAnswer === undefined || parentAnswer === null) {
+            return false;
+          }
+
           const trigger = String(question.trigger_condition_value).toLowerCase();
           const answerValue = Array.isArray(parentAnswer) 
               ? parentAnswer.map(v => String(v).toLowerCase()) 
@@ -159,14 +167,10 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       }
       
       return true;
-  };
+  }, [visibility, questionMap, answers]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setErrors({});
-
-    let allValid = true;
+  const validateForm = async () => {
+     let allValid = true;
     const newErrors: ValidationErrors = {};
 
     const questionsToValidate = Array.from(questionMap.values()).filter(q => isQuestionVisible(q));
@@ -203,14 +207,31 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
           }
       }
     }
+    setErrors(newErrors);
+    return allValid;
+  }
 
-    if (!allValid) {
-      setErrors(newErrors);
-      toast({ variant: "destructive", title: "Validation Failed", description: "Please review your answers." });
-      setIsSubmitting(false);
-      return;
+  const handleValidateClick = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true); // Show loader on validate button
+    const isValid = await validateForm();
+    if (isValid) {
+        setIsValidated(true);
+        toast({ title: "Validation Successful!", description: "You can now submit the survey." });
+    } else {
+        setIsValidated(false);
+        toast({ variant: "destructive", title: "Validation Failed", description: "Please review your answers." });
     }
+    setIsSubmitting(false);
+  }
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isValidated) {
+        toast({ variant: "destructive", title: "Not Validated", description: "Please validate your answers before submitting." });
+        return;
+    }
+    setIsSubmitting(true);
     const { error } = await submitSurvey(survey.id, answers, isAnonymous ? undefined : userName, metadata);
     setIsSubmitting(false);
 
@@ -329,7 +350,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
           <CardTitle className="text-center text-2xl font-bold">{survey.title}</CardTitle>
           <CardDescription className="text-center">Please answer the questions below.</CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
+        <form>
             <CardContent className="space-y-6">
               {survey.questions.map((q, i) => renderQuestion(q, i))}
 
@@ -352,13 +373,22 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
 
             </CardContent>
             <CardFooter>
-                 <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
-                    {isSubmitting ? <Loader2 className="mr-2 animate-spin" /> : <Send className="mr-2"/>}
-                    {isSubmitting ? 'Submitting...' : 'Submit Survey'}
-                </Button>
+                 {!isValidated ? (
+                    <Button onClick={handleValidateClick} className="w-full" size="lg" disabled={isSubmitting}>
+                        {isSubmitting ? <Loader2 className="mr-2 animate-spin" /> : <CheckCircle className="mr-2"/>}
+                        {isSubmitting ? 'Validating...' : 'Validate Answers'}
+                    </Button>
+                 ) : (
+                    <Button onClick={handleSubmit} className="w-full" size="lg" disabled={isSubmitting}>
+                        {isSubmitting ? <Loader2 className="mr-2 animate-spin" /> : <Send className="mr-2"/>}
+                        {isSubmitting ? 'Submitting...' : 'Submit Survey'}
+                    </Button>
+                 )}
             </CardFooter>
         </form>
       </Card>
     </div>
   );
 }
+
+    
