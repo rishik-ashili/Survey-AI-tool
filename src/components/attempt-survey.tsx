@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useMemo, Fragment } from 'react';
+import { useState, useMemo, Fragment, useEffect } from 'react';
 import type { SavedSurvey, SurveyQuestion, SubmissionMetadata } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Input } from './ui/input';
 import { Checkbox } from './ui/checkbox';
-import { submitSurvey, handleValidateAnswer } from '@/app/actions';
+import { submitSurvey, handleValidateAnswer, handleShouldAskQuestion } from '@/app/actions';
 import { Separator } from './ui/separator';
 
 type AttemptSurveyProps = {
@@ -22,6 +22,7 @@ type AttemptSurveyProps = {
 };
 
 type ValidationErrors = Record<string, string>;
+type QuestionVisibility = Record<string, boolean>;
 
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -31,15 +32,82 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [metadata, setMetadata] = useState<SubmissionMetadata>({});
   const [errors, setErrors] = useState<ValidationErrors>({});
+  const [visibility, setVisibility] = useState<QuestionVisibility>({});
   const { toast } = useToast();
+
+  const questionMap = useMemo(() => {
+      const map = new Map<string, SurveyQuestion>();
+      const addQuestionsToMap = (questions: SurveyQuestion[]) => {
+          for (const q of questions) {
+              map.set(q.id, q);
+              if (q.sub_questions) {
+                  addQuestionsToMap(q.sub_questions);
+              }
+          }
+      };
+      addQuestionsToMap(survey.questions);
+      return map;
+  }, [survey.questions]);
+
+  // This effect hook will run whenever answers change to update question visibility
+  useEffect(() => {
+    const updateVisibility = async () => {
+      const newVisibility: QuestionVisibility = {};
+      const answerHistory: { question: string; answer: string; }[] = [];
+
+      const processQuestions = async (questions: SurveyQuestion[]) => {
+        for (const question of questions) {
+          let shouldShow = true;
+
+          // Rule 1: Sub-question visibility depends on parent answer
+          if (question.parent_question_id) {
+            const parentAnswer = answers[question.parent_question_id];
+            if (String(parentAnswer).toLowerCase() !== String(question.trigger_condition_value).toLowerCase()) {
+              shouldShow = false;
+            }
+          }
+
+          // Rule 2: Use AI to determine if a question is relevant
+          if (shouldShow && answerHistory.length > 0) {
+             const aiCheck = await handleShouldAskQuestion({
+                question: question.text,
+                previousAnswers: answerHistory,
+             });
+             if (!aiCheck.shouldAsk) {
+                shouldShow = false;
+             }
+          }
+
+          newVisibility[question.id] = shouldShow;
+          
+          // If the question is visible, add its answer to history for subsequent checks
+          if (shouldShow && answers[question.id] !== undefined) {
+             answerHistory.push({ question: question.text, answer: String(answers[question.id])});
+          }
+          
+          // Recursively process sub-questions
+          if (shouldShow && question.sub_questions) {
+            await processQuestions(question.sub_questions);
+          }
+        }
+      };
+
+      await processQuestions(survey.questions);
+      setVisibility(newVisibility);
+    };
+    
+    updateVisibility();
+  }, [answers, survey.questions]);
+
 
   const handleAnswerChange = (questionId: string, value: any, isIterative: boolean = false, iterationIndex?: number) => {
     setErrors(prev => {
       const newErrors = {...prev};
-      delete newErrors[questionId + (isIterative ? `-${iterationIndex}`: '')];
+      const errorKey = isIterative && iterationIndex !== undefined ? `${questionId}-${iterationIndex}` : questionId;
+      delete newErrors[errorKey];
       return newErrors;
     });
-
+    
     if (isIterative && iterationIndex !== undefined) {
       setAnswers(prev => {
         const existingValues = (prev[questionId] && prev[questionId].values) ? [...prev[questionId].values] : [];
@@ -71,13 +139,22 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     setIsSubmitting(true);
     setErrors({});
     
-    // --- AI Validation Step ---
     let allValid = true;
     const newErrors: ValidationErrors = {};
 
-    for (const question of survey.questions) {
-      if (question.type === 'text') { // Only validate text inputs for now
-        const answer = answers[question.id];
+    const questionsToValidate = Array.from(questionMap.values()).filter(q => visibility[q.id]);
+
+    for (const question of questionsToValidate) {
+      const answer = answers[question.id];
+      // Basic required check
+      if (answer === undefined || answer === null || answer === '' || (Array.isArray(answer) && answer.length === 0)) {
+          allValid = false;
+          newErrors[question.id] = "This question is required.";
+          continue; // Skip AI validation if it's empty
+      }
+      
+      // AI validation for text inputs
+      if (question.type === 'text') {
         if (answer) {
           const validationResult = await handleValidateAnswer({
             question: question.text,
@@ -99,7 +176,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       return;
     }
 
-    // --- Submission Step ---
     const { error } = await submitSurvey(survey.id, answers, isAnonymous ? undefined : userName, metadata);
     setIsSubmitting(false);
 
@@ -112,12 +188,8 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   };
   
   const renderQuestion = (question: SurveyQuestion, index: number, isSubQuestion: boolean = false) => {
-      // Conditional logic for sub-questions
-      if (isSubQuestion && question.parent_question_id) {
-          const parentAnswer = answers[question.parent_question_id];
-          if (String(parentAnswer).toLowerCase() !== String(question.trigger_condition_value).toLowerCase()) {
-              return null; // Don't render sub-question if condition isn't met
-          }
+      if (visibility[question.id] === false) {
+          return null;
       }
       
       const iterationCount = getIterationCount(question);
@@ -135,7 +207,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
               {[...Array(iterationCount)].map((_, iterIndex) => {
                   const uniqueId = question.id + (isIterative ? `-${iterIndex}` : '');
                   const value = isIterative ? (answers[question.id]?.values || [])[iterIndex] : answers[question.id];
-                  const error = errors[uniqueId];
+                  const error = errors[isIterative ? `${question.id}-${iterIndex}` : question.id];
 
                   return (
                     <div key={uniqueId} className="space-y-3 animate-fade-in py-4">
@@ -174,7 +246,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                       })()}
                       {error && <p className="text-sm text-destructive mt-2">{error}</p>}
                       
-                      {/* Recursively render sub-questions */}
                       {question.sub_questions?.map((sub, subIndex) => renderQuestion(sub, subIndex, true))}
                     </div>
                   );
@@ -245,3 +316,5 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     </div>
   );
 }
+
+    
