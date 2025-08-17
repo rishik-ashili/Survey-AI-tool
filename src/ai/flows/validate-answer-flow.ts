@@ -34,15 +34,7 @@ export type ValidateAnswerOutput = z.infer<typeof ValidateAnswerOutputSchema>;
 export async function validateAnswer(
   input: ValidateAnswerInput
 ): Promise<ValidateAnswerOutput> {
-  // First, check against the provided expected answers if they exist.
-  if (input.expected_answers) {
-    const expectedList = input.expected_answers.split(',').map(item => item.trim().toLowerCase());
-    if (expectedList.includes(input.answer.toLowerCase())) {
-      return { isValid: true, suggestion: '' };
-    }
-  }
-
-  // If no match or no expected answers, proceed with AI validation.
+  // AI-powered validation is now the primary method.
   return validateAnswerFlow(input);
 }
 
@@ -61,7 +53,8 @@ Question: {{{question}}}
 Answer: {{{answer}}}
 
 {{#if expected_answers}}
-The user was given a list of expected answer types. The answer should be similar to these: {{{expected_answers}}}
+The survey creator provided a list of expected answer types or examples. Use this as a strong guide for what constitutes a valid answer. The user's answer should be semantically similar or belong to the same category as these examples. For example, if the expected answer is "rice", then "biryani" or "fried rice" should be considered valid. If the expected answer is "Delhi", then "vasant vihar, delhi" is also valid.
+Expected Answer Examples: {{{expected_answers}}}
 {{/if}}
 
 Evaluate the answer. If it is a reasonable and on-topic response to the question, set 'isValid' to true. If the answer is irrelevant, nonsensical, or clearly not what the question is asking for, set 'isValid' to false.

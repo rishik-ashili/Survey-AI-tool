@@ -26,7 +26,8 @@ export async function handleValidateAnswer(input: ValidateAnswerInput): Promise<
         return await validateAnswer(input);
     } catch (error) {
         console.error("Error calling validateAnswer flow:", error);
-        return { isValid: true, suggestion: "Could not validate answer." }; // Default to valid to avoid blocking user
+        // Default to valid to avoid blocking user if AI fails, but log the error.
+        return { isValid: true, suggestion: "Could not validate answer. Please try again." }; 
     }
 }
 
