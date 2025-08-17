@@ -7,13 +7,13 @@ import { getSurveyResults } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ArrowLeft, Loader2, User, ChevronDown, PieChart, LineChart } from 'lucide-react';
+import { ArrowLeft, Loader2, User, ChevronDown, PieChart as PieIcon, LineChart as LineIcon, BarChart as BarIcon, Smartphone, Laptop } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import { BarChart as RechartsBarChart, Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Pie, Cell, Line, LineChart as RechartsLineChart, PieChart as RechartsPieChart } from "recharts"
+import { Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Pie, Cell, Line, LineChart, PieChart } from "recharts"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { format } from 'date-fns';
 
@@ -24,6 +24,22 @@ type SurveyResultsProps = {
 };
 
 const COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
+
+type Submission = {
+  id: string;
+  userName: string;
+  createdAt: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  city?: string | null;
+  country?: string | null;
+  device_type?: string | null;
+  answers: {
+    questionId: string;
+    questionText: string;
+    answerValue: string;
+  }[];
+};
 
 
 export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
@@ -51,6 +67,11 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         id: result.submission_id,
         userName: result.user_name || 'Anonymous',
         createdAt: result.submission_created_at,
+        latitude: result.latitude,
+        longitude: result.longitude,
+        city: result.city,
+        country: result.country,
+        device_type: result.device_type,
         answers: [],
       };
       acc[result.submission_id].answers.push({
@@ -59,7 +80,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         answerValue: result.answer_value,
       });
       return acc;
-    }, {} as Record<string, { id: string; userName: string; createdAt: string; answers: { questionId: string, questionText: string; answerValue: string }[] }>);
+    }, {} as Record<string, Submission>);
     
     Object.values(grouped).forEach(submission => {
         submission.answers.sort((a, b) => {
@@ -104,7 +125,6 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
             });
             data = Object.entries(counts).map(([name, value]) => ({ name, value }));
         } else if (question.type === 'number') {
-            // Data for line chart should be a series of points
             data = questionResults
                 .map((r, index) => ({ name: `Sub. ${index + 1}`, value: Number(r.answer_value) || 0 }))
                 .sort((a, b) => a.value - b.value);
@@ -117,6 +137,16 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         };
     });
   }, [survey, results]);
+  
+  const deviceTypeData = useMemo(() => {
+    const counts = submissions.reduce((acc, sub) => {
+        const device = sub.device_type || 'Unknown';
+        acc[device] = (acc[device] || 0) + 1;
+        return acc;
+    }, {} as Record<string, number>);
+    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+  }, [submissions])
+
 
   const chartConfig = useMemo(() => {
     const config: any = {};
@@ -131,6 +161,9 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         }
     });
      config.value = { label: 'Value', color: "hsl(var(--chart-1))" };
+     config.desktop = { label: 'Desktop', color: "hsl(var(--chart-1))" };
+     config.mobile = { label: 'Mobile', color: "hsl(var(--chart-2))" };
+     config.Unknown = { label: 'Unknown', color: "hsl(var(--chart-3))" };
     return config;
   }, [aggregatedResults]);
 
@@ -144,32 +177,28 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
          case 'multiple-choice':
             return (
                 <ChartContainer config={chartConfig} className="min-h-60 w-full aspect-square">
-                    <ResponsiveContainer width="100%" height={300}>
-                         <RechartsPieChart>
-                            <Tooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
-                            <Pie data={question.data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
-                               {question.data.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                               ))}
-                            </Pie>
-                            <Legend />
-                         </RechartsPieChart>
-                    </ResponsiveContainer>
+                    <PieChart>
+                        <Tooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
+                        <Pie data={question.data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                           {question.data.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={chartConfig[entry.name]?.color || COLORS[index % COLORS.length]} />
+                           ))}
+                        </Pie>
+                        <Legend />
+                    </PieChart>
                 </ChartContainer>
             );
         case 'number':
             return (
-                <ChartContainer config={chartConfig} className="min-h-60 w-full">
-                    <ResponsiveContainer width="100%" height={300}>
-                        <RechartsLineChart data={question.data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="name" />
-                            <YAxis />
-                            <Tooltip content={<ChartTooltipContent />} />
-                            <Legend />
-                            <Line type="monotone" dataKey="value" stroke="hsl(var(--chart-1))" activeDot={{ r: 8 }} />
-                        </RechartsLineChart>
-                    </ResponsiveContainer>
+                 <ChartContainer config={chartConfig} className="min-h-60 w-full">
+                    <LineChart data={question.data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis />
+                        <Tooltip content={<ChartTooltipContent indicator="line" />} />
+                        <Legend />
+                        <Line type="monotone" dataKey="value" stroke="hsl(var(--chart-1))" activeDot={{ r: 8 }} />
+                    </LineChart>
                 </ChartContainer>
             )
         default:
@@ -202,17 +231,41 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
               <div>
                   <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">Charts</h3>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <Card>
+                           <CardHeader>
+                               <CardTitle className="text-base flex items-center gap-2">
+                                   <BarIcon className="h-5 w-5 text-muted-foreground" />
+                                   Submissions by Device
+                                </CardTitle>
+                           </CardHeader>
+                           <CardContent>
+                                <ChartContainer config={chartConfig} className="min-h-60 w-full">
+                                    <PieChart>
+                                        <Tooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
+                                        <Pie data={deviceTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                                        {deviceTypeData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={chartConfig[entry.name]?.color || COLORS[index % COLORS.length]} />
+                                        ))}
+                                        </Pie>
+                                        <Legend />
+                                    </PieChart>
+                                </ChartContainer>
+                           </CardContent>
+                       </Card>
+
                        {aggregatedResults.filter(q => q.type !== 'text').map(question => (
                            <Card key={question.id}>
                                <CardHeader>
                                    <CardTitle className="text-base flex items-center gap-2">
-                                       {question.type === 'number' && <LineChart className="h-5 w-5 text-muted-foreground" />}
-                                       {(question.type === 'yes-no' || question.type === 'multiple-choice') && <PieChart className="h-5 w-5 text-muted-foreground" />}
+                                       {question.type === 'number' && <LineIcon className="h-5 w-5 text-muted-foreground" />}
+                                       {(question.type === 'yes-no' || question.type === 'multiple-choice') && <PieIcon className="h-5 w-5 text-muted-foreground" />}
                                        {question.text}
                                     </CardTitle>
                                </CardHeader>
                                <CardContent>
-                                    {renderChart(question)}
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        {renderChart(question)}
+                                    </ResponsiveContainer>
                                </CardContent>
                            </Card>
                        ))}
@@ -226,8 +279,11 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                     <Collapsible key={sub.id} className="border rounded-lg">
                       <CollapsibleTrigger className="w-full p-4 flex justify-between items-center cursor-pointer hover:bg-muted/50 rounded-t-lg data-[state=open]:bg-muted/50">
                          <div className="text-left">
-                           <p className="font-medium">{sub.userName}</p>
-                           <p className="text-sm text-muted-foreground">{format(new Date(sub.createdAt), "PPP p")}</p>
+                           <div className="flex items-center gap-2">
+                            {sub.device_type === 'mobile' ? <Smartphone className="h-4 w-4 text-muted-foreground"/> : sub.device_type === 'desktop' ? <Laptop className="h-4 w-4 text-muted-foreground"/> : null}
+                            <p className="font-medium">{sub.userName}</p>
+                           </div>
+                           <p className="text-sm text-muted-foreground">{format(new Date(sub.createdAt), "PPP p")} &bull; {sub.city || 'Unknown Location'}</p>
                          </div>
                          <ChevronDown className="h-5 w-5 transition-transform [&[data-state=open]]:rotate-180" />
                       </CollapsibleTrigger>
@@ -254,5 +310,3 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     </div>
   );
 }
-
-    

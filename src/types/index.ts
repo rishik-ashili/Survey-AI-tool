@@ -46,8 +46,21 @@ export interface SurveyResult {
     submission_id: string;
     user_name: string | null;
     submission_created_at: string;
+    latitude: number | null;
+    longitude: number | null;
+    city: string | null;
+    country: string | null;
+    device_type: string | null;
     question_id: string;
     question_text: string;
     question_type: QuestionType;
     answer_value: string;
+}
+
+export interface SubmissionMetadata {
+    latitude?: number;
+    longitude?: number;
+    city?: string;
+    country?: string;
+    device_type?: 'mobile' | 'desktop';
 }

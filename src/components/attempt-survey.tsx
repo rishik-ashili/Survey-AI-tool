@@ -1,20 +1,22 @@
 
 "use client";
 
-import { useState } from 'react';
-import type { SavedSurvey } from '@/types';
+import { useState, useEffect } from 'react';
+import type { SavedSurvey, SubmissionMetadata } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Send, Minus, Plus, User, VenetianMask } from 'lucide-react';
+import { ArrowLeft, Send, Minus, Plus, User, VenetianMask, Laptop, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Input } from './ui/input';
 import { Checkbox } from './ui/checkbox';
 import { submitSurvey } from '@/app/actions';
+import { useIsMobile } from '@/hooks/use-mobile';
+
 
 type AttemptSurveyProps = {
   survey: SavedSurvey;
@@ -27,7 +29,49 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userName, setUserName] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
+  const [metadata, setMetadata] = useState<SubmissionMetadata>({});
   const { toast } = useToast();
+  const isMobile = useIsMobile();
+
+
+  useEffect(() => {
+    const getMetadata = async () => {
+       const device_type = isMobile ? 'mobile' : 'desktop';
+       const partialMetadata: SubmissionMetadata = { device_type };
+
+       try {
+           const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+               navigator.geolocation.getCurrentPosition(resolve, reject, {
+                   timeout: 5000,
+               });
+           });
+
+           partialMetadata.latitude = position.coords.latitude;
+           partialMetadata.longitude = position.coords.longitude;
+
+           // Basic reverse geocoding with a free API (consider privacy and terms of use)
+           try {
+            const geoResponse = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${position.coords.latitude}&longitude=${position.coords.longitude}&localityLanguage=en`);
+            const geoData = await geoResponse.json();
+            partialMetadata.city = geoData.city;
+            partialMetadata.country = geoData.countryName;
+           } catch(geoError) {
+             console.warn("Could not fetch city/country", geoError);
+           }
+       } catch (error) {
+           console.warn('Could not get location:', error);
+           toast({
+                variant: 'default',
+                title: "Location not shared",
+                description: "You chose not to share your location.",
+            });
+       }
+       setMetadata(partialMetadata);
+    }
+    
+    getMetadata();
+  }, [isMobile, toast]);
+
 
   const handleAnswerChange = (questionId: string, value: string | number | string[]) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -62,7 +106,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     }
 
     setIsSubmitting(true);
-    const { error } = await submitSurvey(survey.id, answers, isAnonymous ? undefined : userName);
+    const { error } = await submitSurvey(survey.id, answers, isAnonymous ? undefined : userName, metadata);
     setIsSubmitting(false);
 
     if (error) {
@@ -175,7 +219,10 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="text-center text-2xl font-bold">{survey.title}</CardTitle>
-          <CardDescription className="text-center">Please fill out the survey below.</CardDescription>
+          <CardDescription className="text-center flex items-center justify-center gap-2">
+            {metadata.device_type === 'mobile' ? <Smartphone className="h-4 w-4" /> : <Laptop className="h-4 w-4" />}
+            {metadata.city && metadata.country ? `${metadata.city}, ${metadata.country}` : 'Please fill out the survey below.'}
+          </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
             <CardContent className="space-y-6">

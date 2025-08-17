@@ -4,7 +4,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { generateSurvey, type GenerateSurveyInput, type GenerateSurveyOutput } from "@/ai/flows/generate-survey-from-prompt";
-import type { SavedSurvey, SurveyQuestion, SurveyResult } from "@/types";
+import type { SavedSurvey, SurveyQuestion, SurveyResult, SubmissionMetadata } from "@/types";
 
 export async function handleGenerateSurvey(input: GenerateSurveyInput): Promise<GenerateSurveyOutput> {
   try {
@@ -171,7 +171,8 @@ export async function deleteSurvey(id: string): Promise<{error: string | null}> 
 export async function submitSurvey(
     surveyId: string,
     answers: Record<string, string | number | string[]>,
-    userName?: string
+    userName: string | undefined,
+    metadata: SubmissionMetadata,
 ): Promise<{ error: string | null }> {
     const cookieStore = cookies()
     const supabase = createServerClient(
@@ -182,7 +183,11 @@ export async function submitSurvey(
 
     const { data: submissionData, error: submissionError } = await supabase
         .from('submissions')
-        .insert({ survey_id: surveyId, user_name: userName })
+        .insert({ 
+            survey_id: surveyId, 
+            user_name: userName,
+            ...metadata
+        })
         .select()
         .single();
     
