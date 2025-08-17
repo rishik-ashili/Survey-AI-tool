@@ -1,0 +1,80 @@
+SQl 
+
+-- surveys table
+CREATE TABLE surveys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- questions table
+CREATE TYPE question_type AS ENUM ('text', 'number', 'yes-no');
+CREATE TABLE questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  survey_id UUID NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  type question_type NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_questions_survey_id ON questions(survey_id);
+
+-- submissions table
+CREATE TABLE submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    survey_id UUID NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+    user_name TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_submissions_survey_id ON submissions(survey_id);
+
+
+-- answers table
+CREATE TABLE answers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    submission_id UUID NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+    question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    value TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_answers_submission_id ON answers(submission_id);
+CREATE INDEX idx_answers_question_id ON answers(question_id);
+
+-- Enable Row Level Security
+ALTER TABLE surveys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE answers ENABLE ROW LEVEL SECURITY;
+
+-- Create policies for public access (or restrict as needed)
+CREATE POLICY "Public surveys are viewable by everyone." ON surveys
+  FOR SELECT USING (true);
+
+CREATE POLICY "Public questions are viewable by everyone." ON questions
+  FOR SELECT USING (true);
+
+CREATE POLICY "Anyone can create submissions." ON submissions
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Anyone can create answers." ON answers
+  FOR INSERT WITH CHECK (true);
+
+
+-- Allow anyone to insert into the surveys table
+CREATE POLICY "Anyone can create surveys." ON surveys
+  FOR INSERT WITH CHECK (true);
+
+-- Allow anyone to insert into the questions table
+CREATE POLICY "Anyone can create questions." ON questions
+  FOR INSERT WITH CHECK (true);
+
+-- Allow anyone to create submissions.
+CREATE POLICY "Anyone can create submissions." ON submissions
+  FOR INSERT WITH CHECK (true);
+
+-- Allow anyone to create answers.
+CREATE POLICY "Anyone can create answers." ON answers
+  FOR INSERT WITH CHECK (true);
+
+-- Allow users to view their own submissions.
+CREATE POLICY "Users can view their own submissions." ON submissions
+  FOR SELECT USING (true);
