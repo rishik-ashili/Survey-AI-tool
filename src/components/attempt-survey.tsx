@@ -33,90 +33,57 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [metadata, setMetadata] = useState<SubmissionMetadata>({});
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [visibility, setVisibility] = useState<QuestionVisibility>({});
+  const [isInitializing, setIsInitializing] = useState(true);
 
   const { toast } = useToast();
 
   const questionMap = useMemo(() => {
-      const map = new Map<string, SurveyQuestion>();
-      const addQuestionsToMap = (questions: SurveyQuestion[]) => {
-          for (const q of questions) {
-              map.set(q.id, q);
-              if (q.sub_questions) {
-                  addQuestionsToMap(q.sub_questions);
-              }
-          }
-      };
-      addQuestionsToMap(survey.questions);
-      return map;
+    const map = new Map<string, SurveyQuestion>();
+    const addQuestionsToMap = (questions: SurveyQuestion[]) => {
+      for (const q of questions) {
+        map.set(q.id, q);
+        if (q.sub_questions) {
+          addQuestionsToMap(q.sub_questions);
+        }
+      }
+    };
+    addQuestionsToMap(survey.questions);
+    return map;
   }, [survey.questions]);
 
-  // This effect hook will run whenever answers change to update question visibility
+  // This effect hook runs once on mount to determine the initial visibility using AI.
   useEffect(() => {
-    const updateVisibility = async () => {
-      const newVisibility: QuestionVisibility = {};
+    const initializeVisibility = async () => {
+      const initialVisibility: QuestionVisibility = {};
       const answerHistory: { question: string; answer: string; }[] = [];
 
-      const processQuestions = async (questions: SurveyQuestion[], parentIsVisible: boolean) => {
+      const processQuestions = async (questions: SurveyQuestion[]) => {
         for (const question of questions) {
-          let shouldShow = parentIsVisible;
+           try {
+              const aiCheck = await handleShouldAskQuestion({
+                  question: question.text,
+                  previousAnswers: answerHistory,
+              });
+              initialVisibility[question.id] = aiCheck.shouldAsk;
+           } catch(e) {
+              console.error("AI visibility check failed, defaulting to visible", e);
+              initialVisibility[question.id] = true;
+           }
 
-          // Rule 1: Sub-question visibility depends on parent answer
-          if (shouldShow && question.parent_question_id) {
-            const parentAnswer = answers[question.parent_question_id];
-            // Using String() to handle different types and checking against trigger value
-            if (Array.isArray(parentAnswer) ? !parentAnswer.includes(String(question.trigger_condition_value)) : String(parentAnswer).toLowerCase() !== String(question.trigger_condition_value).toLowerCase()) {
-              shouldShow = false;
-            }
-          }
-          
-          // Rule 2: Iterative question visibility depends on source question having a numeric answer
-          if (shouldShow && question.is_iterative && question.iterative_source_question_id) {
-             const sourceAnswer = answers[question.iterative_source_question_id];
-             const count = Number(sourceAnswer);
-             if (isNaN(count) || count <= 0) {
-                shouldShow = false;
-             }
-          }
-
-          // If the question is visible so far, add its answer to history for subsequent checks
-          if (shouldShow && answers[question.id] !== undefined) {
-             const answerValue = Array.isArray(answers[question.id]) ? answers[question.id].join(', ') : String(answers[question.id]);
-             if (answerValue) {
-                answerHistory.push({ question: question.text, answer: answerValue});
-             }
-          }
-
-          // Rule 3: Use AI to determine if a question is relevant
-          if (shouldShow && answerHistory.length > 0) {
-             try {
-                // Check subsequent questions' relevance
-                const aiCheck = await handleShouldAskQuestion({
-                    question: question.text,
-                    previousAnswers: answerHistory,
-                });
-                if (!aiCheck.shouldAsk) {
-                    shouldShow = false;
-                }
-             } catch(e) {
-                console.error("AI visibility check failed", e);
-             }
-          }
-
-          newVisibility[question.id] = shouldShow;
-          
-          // Recursively process sub-questions
           if (question.sub_questions) {
-            await processQuestions(question.sub_questions, shouldShow);
+            await processQuestions(question.sub_questions);
           }
         }
       };
 
-      await processQuestions(survey.questions, true);
-      setVisibility(newVisibility);
+      await processQuestions(survey.questions);
+      setVisibility(initialVisibility);
+      setIsInitializing(false);
     };
-    
-    updateVisibility();
-  }, [answers, survey.questions]);
+
+    initializeVisibility();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [survey.questions]); // Only run on mount
 
 
   const handleAnswerChange = (questionId: string, value: any, isIterative: boolean = false, iterationIndex?: number) => {
@@ -126,7 +93,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       delete newErrors[errorKey];
       return newErrors;
     });
-    
+
     if (isIterative && iterationIndex !== undefined) {
       setAnswers(prev => {
         const existingValues = (prev[questionId] && prev[questionId].values) ? [...prev[questionId].values] : [];
@@ -137,7 +104,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       setAnswers(prev => ({ ...prev, [questionId]: value }));
     }
   };
-  
+
   const handleMultipleChoiceChange = (questionId: string, optionText: string, isChecked: boolean) => {
     setErrors(prev => {
       const newErrors = {...prev};
@@ -158,16 +125,51 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     const count = Number(sourceAnswer);
     return !isNaN(count) && count > 0 ? count : 0;
   };
-  
+
+  const isQuestionVisible = (question: SurveyQuestion): boolean => {
+      // Rule 1: Check initial AI-based visibility
+      if (visibility[question.id] === false) {
+          return false;
+      }
+      
+      // Rule 2: Sub-question visibility depends on parent answer
+      if (question.parent_question_id) {
+          const parent = questionMap.get(question.parent_question_id);
+          if (!parent || !isQuestionVisible(parent)) {
+              return false;
+          }
+          const parentAnswer = answers[question.parent_question_id];
+          const trigger = String(question.trigger_condition_value).toLowerCase();
+          const answerValue = Array.isArray(parentAnswer) 
+              ? parentAnswer.map(v => String(v).toLowerCase()) 
+              : [String(parentAnswer).toLowerCase()];
+          
+          if (!answerValue.includes(trigger)) {
+              return false;
+          }
+      }
+
+      // Rule 3: Iterative question visibility depends on source question having a numeric answer
+      if (question.is_iterative && question.iterative_source_question_id) {
+          const sourceAnswer = answers[question.iterative_source_question_id];
+          const count = Number(sourceAnswer);
+          if (isNaN(count) || count <= 0) {
+              return false;
+          }
+      }
+      
+      return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrors({});
-    
+
     let allValid = true;
     const newErrors: ValidationErrors = {};
 
-    const questionsToValidate = Array.from(questionMap.values()).filter(q => visibility[q.id]);
+    const questionsToValidate = Array.from(questionMap.values()).filter(q => isQuestionVisible(q));
 
     for (const question of questionsToValidate) {
         const answer = answers[question.id];
@@ -187,7 +189,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
             newErrors[question.id] = "This question is required.";
             continue; // Skip AI validation if it's empty
         }
-      
+
       // AI validation for text inputs
       if (question.type === 'text' && answer && !isIterative) {
           const validationResult = await handleValidateAnswer({
@@ -219,12 +221,12 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         toast({ title: "Survey Submitted!", description: "Thank you for your feedback." });
     }
   };
-  
+
   const renderQuestion = (question: SurveyQuestion, index: number, isSubQuestion: boolean = false) => {
-      if (visibility[question.id] === false) {
+      if (!isQuestionVisible(question)) {
           return null;
       }
-      
+
       const iterationCount = getIterationCount(question);
       const isIterative = question.is_iterative && iterationCount > 0;
 
@@ -249,7 +251,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                         {question.text}
                         {isIterative && ` (Entry ${iterIndex + 1})`}
                       </Label>
-                      
+
                       {(() => {
                         switch(question.type) {
                             case 'text':
@@ -278,7 +280,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                         }
                       })()}
                       {error && <p className="text-sm text-destructive mt-2">{error}</p>}
-                      
+
                       {!isIterative && question.sub_questions?.map((sub, subIndex) => renderQuestion(sub, subIndex, true))}
                     </div>
                   );
@@ -289,6 +291,17 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         </Fragment>
       );
   }
+
+  if (isInitializing) {
+     return (
+        <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+            <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Preparing your smart survey...</h2>
+            <p className="text-muted-foreground">The AI is analyzing the survey logic. This may take a moment.</p>
+        </div>
+    )
+  }
+
 
   if (submitted) {
     return (
@@ -319,7 +332,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         <form onSubmit={handleSubmit}>
             <CardContent className="space-y-6">
               {survey.questions.map((q, i) => renderQuestion(q, i))}
-              
+
               <Separator />
 
               <div className="space-y-3 p-4 border rounded-lg bg-background mt-6 w-full">
