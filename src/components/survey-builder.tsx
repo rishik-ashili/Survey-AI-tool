@@ -27,6 +27,7 @@ type SurveyBuilderProps = {
   setTitle: (title: string) => void;
   questions: SurveyQuestion[];
   setQuestions: React.Dispatch<React.SetStateAction<SurveyQuestion[]>>;
+  hasPersonalizedQuestions: boolean;
   onSaveSuccess: () => void;
   onAddMore: () => void;
   isLoadingMore: boolean;
@@ -231,6 +232,7 @@ export default function SurveyBuilder({
   setTitle,
   questions,
   setQuestions,
+  hasPersonalizedQuestions,
   onSaveSuccess,
   onAddMore,
   isLoadingMore,
@@ -337,7 +339,7 @@ export default function SurveyBuilder({
 
     setIsSaving(true);
     
-    const { data, error } = await saveSurvey(title, questions);
+    const { data, error } = await saveSurvey(title, questions, hasPersonalizedQuestions);
 
     setIsSaving(false);
 

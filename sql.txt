@@ -229,3 +229,28 @@ JOIN
     answers a ON sub.id = a.submission_id
 JOIN
     questions q ON a.question_id = q.id;
+
+
+-- Add column to surveys table for personalized questions feature
+ALTER TABLE surveys ADD COLUMN has_personalized_questions BOOLEAN DEFAULT FALSE;
+
+-- Create a new table for personalized answers
+CREATE TABLE personalized_answers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  submission_id UUID NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+  question_text TEXT NOT NULL,
+  answer_text TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_personalized_answers_submission_id ON personalized_answers(submission_id);
+
+-- Enable RLS and create policies for the new table
+ALTER TABLE personalized_answers ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Anyone can create personalized answers." ON personalized_answers
+  FOR INSERT WITH CHECK (true);
+
+-- Personalized answers should not be public by default.
+-- If they need to be viewed, a more restrictive policy should be created.
+-- For now, only the creator can see them, which is no one since there's no auth.
+-- This means they are effectively write-only for now.

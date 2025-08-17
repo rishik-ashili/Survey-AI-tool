@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { generateSurvey, type GenerateSurveyInput, type GenerateSurveyOutput } from "@/ai/flows/generate-survey-from-prompt";
 import { validateAnswer, type ValidateAnswerInput, type ValidateAnswerOutput } from "@/ai/flows/validate-answer-flow";
 import { shouldAskQuestion, type ShouldAskQuestionInput, type ShouldAskQuestionOutput } from "@/ai/flows/should-ask-question-flow";
+import { generatePersonalizedQuestions, type GeneratePersonalizedQuestionsInput, type GeneratePersonalizedQuestionsOutput } from "@/ai/flows/generate-personalized-questions-flow";
 import type { SavedSurvey, SurveyQuestion, SurveyResult, SubmissionMetadata } from "@/types";
 
 export async function handleGenerateSurvey(input: GenerateSurveyInput): Promise<GenerateSurveyOutput> {
@@ -41,6 +42,16 @@ export async function handleShouldAskQuestion(input: ShouldAskQuestionInput): Pr
         return { shouldAsk: true, reason: "Could not determine if question should be asked." };
     }
 }
+
+export async function handleGeneratePersonalizedQuestions(input: GeneratePersonalizedQuestionsInput): Promise<GeneratePersonalizedQuestionsOutput> {
+    try {
+        return await generatePersonalizedQuestions(input);
+    } catch (error) {
+        console.error("Error calling generatePersonalizedQuestions flow:", error);
+        return { questions: [] };
+    }
+}
+
 
 async function insertQuestions(supabase: any, questions: SurveyQuestion[], surveyId: string, parentQuestionDbId?: string, questionMap: Map<string, string> = new Map()) {
 
@@ -95,7 +106,7 @@ async function insertQuestions(supabase: any, questions: SurveyQuestion[], surve
 }
 
 
-export async function saveSurvey(title: string, questions: SurveyQuestion[]): Promise<{data: SavedSurvey | null, error: string | null}> {
+export async function saveSurvey(title: string, questions: SurveyQuestion[], hasPersonalizedQuestions: boolean): Promise<{data: SavedSurvey | null, error: string | null}> {
   const cookieStore = cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -105,7 +116,7 @@ export async function saveSurvey(title: string, questions: SurveyQuestion[]): Pr
 
   const { data: surveyData, error: surveyError } = await supabase
     .from('surveys')
-    .insert({ title })
+    .insert({ title, has_personalized_questions: hasPersonalizedQuestions })
     .select()
     .single();
 
@@ -222,7 +233,8 @@ export async function getSavedSurveys(): Promise<{data: SavedSurvey[] | null, er
         .select(`
             id,
             title,
-            created_at
+            created_at,
+            has_personalized_questions
         `)
         .order('created_at', { ascending: false });
 
@@ -275,7 +287,7 @@ export async function submitSurvey(
     answers: Record<string, any>, 
     userName: string | undefined,
     metadata: SubmissionMetadata,
-): Promise<{ error: string | null }> {
+): Promise<{ submissionId: string | null, error: string | null }> {
     const cookieStore = cookies()
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -295,13 +307,13 @@ export async function submitSurvey(
     
     if (submissionError) {
         console.error("Error creating submission:", submissionError);
-        return { error: submissionError.message };
+        return { submissionId: null, error: submissionError.message };
     }
     
     if (!submissionData) {
         const errorMessage = "Failed to create submission or retrieve submission ID.";
         console.error(errorMessage);
-        return { error: errorMessage };
+        return { submissionId: null, error: errorMessage };
     }
 
     const answersToInsert: { submission_id: string; question_id: string; value: string; iteration?: number }[] = [];
@@ -335,11 +347,43 @@ export async function submitSurvey(
     if (answersError) {
         console.error("Error saving answers:", answersError);
         await supabase.from('submissions').delete().match({ id: submissionData.id });
-        return { error: answersError.message };
+        return { submissionId: null, error: answersError.message };
+    }
+
+    return { submissionId: submissionData.id, error: null };
+}
+
+export async function submitPersonalizedAnswers(
+    submissionId: string,
+    answers: Record<string, string>
+): Promise<{ error: string | null }> {
+    const cookieStore = cookies();
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get: (name) => cookieStore.get(name)?.value } }
+    );
+
+    const answersToInsert = Object.entries(answers).map(([questionText, answerText]) => ({
+        submission_id: submissionId,
+        question_text: questionText,
+        answer_text: answerText,
+    }));
+
+    if (answersToInsert.length === 0) {
+        return { error: null }; // Nothing to submit
+    }
+
+    const { error } = await supabase.from('personalized_answers').insert(answersToInsert);
+
+    if (error) {
+        console.error("Error saving personalized answers:", error);
+        return { error: error.message };
     }
 
     return { error: null };
 }
+
 
 export async function getSurveyResults(surveyId: string): Promise<{data: SurveyResult[] | null, error: string | null}> {
     const cookieStore = cookies()

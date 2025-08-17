@@ -8,13 +8,15 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Send, User, VenetianMask, Loader2, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Send, User, VenetianMask, Loader2, CheckCircle, Sparkles, MessageCircleQuestion } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Input } from './ui/input';
 import { Checkbox } from './ui/checkbox';
-import { submitSurvey, handleValidateAnswer, handleShouldAskQuestion } from '@/app/actions';
+import { submitSurvey, handleValidateAnswer, handleShouldAskQuestion, handleGeneratePersonalizedQuestions, submitPersonalizedAnswers } from '@/app/actions';
 import { Separator } from './ui/separator';
+import { useIsMobile } from '@/hooks/use-mobile';
+
 
 type AttemptSurveyProps = {
   survey: SavedSurvey;
@@ -23,10 +25,10 @@ type AttemptSurveyProps = {
 
 type ValidationErrors = Record<string, string>;
 type QuestionVisibility = Record<string, boolean>;
+type PersonalizedQuestion = { questionText: string };
 
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [answers, setAnswers] = useState<Record<string, any>>({});
-  const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userName, setUserName] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
@@ -35,8 +37,37 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [visibility, setVisibility] = useState<QuestionVisibility>({});
   const [isInitializing, setIsInitializing] = useState(true);
   const [isValidated, setIsValidated] = useState(false);
+  
+  const [submissionId, setSubmissionId] = useState<string | null>(null);
+  const [showPersonalized, setShowPersonalized] = useState(false);
+  const [personalizedQuestions, setPersonalizedQuestions] = useState<PersonalizedQuestion[]>([]);
+  const [personalizedAnswers, setPersonalizedAnswers] = useState<Record<string, string>>({});
+  const [isGeneratingPersonalized, setIsGeneratingPersonalized] = useState(false);
+  const [isSubmittingPersonalized, setIsSubmittingPersonalized] = useState(false);
 
   const { toast } = useToast();
+  const isMobile = useIsMobile();
+
+  useEffect(() => {
+    // Fetch device type
+    setMetadata(prev => ({...prev, device_type: isMobile ? 'mobile' : 'desktop' }));
+    
+    // Fetch location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setMetadata(prev => ({
+            ...prev,
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          }));
+        },
+        (error) => {
+          console.warn(`Geolocation error: ${error.message}`);
+        }
+      );
+    }
+  }, [isMobile]);
 
   const questionMap = useMemo(() => {
     const map = new Map<string, SurveyQuestion>();
@@ -232,16 +263,57 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         return;
     }
     setIsSubmitting(true);
-    const { error } = await submitSurvey(survey.id, answers, isAnonymous ? undefined : userName, metadata);
+    const { submissionId: newSubmissionId, error } = await submitSurvey(survey.id, answers, isAnonymous ? undefined : userName, metadata);
     setIsSubmitting(false);
 
-    if (error) {
+    if (error || !newSubmissionId) {
          toast({ variant: "destructive", title: "Submission Failed", description: "Something went wrong. Please try again." });
     } else {
-        setSubmitted(true);
+        setSubmissionId(newSubmissionId);
         toast({ title: "Survey Submitted!", description: "Thank you for your feedback." });
+
+        if (survey.has_personalized_questions) {
+            triggerPersonalizedQuestions();
+        } else {
+            // No personalized questions, just show success and back button
+            setShowPersonalized(true); 
+        }
     }
   };
+
+  const triggerPersonalizedQuestions = async () => {
+    setIsGeneratingPersonalized(true);
+    setShowPersonalized(true);
+
+    const formattedAnswers = Object.entries(answers).map(([qId, ans]) => {
+        const questionText = questionMap.get(qId)?.text || '';
+        return { question: questionText, answer: String(ans) };
+    }).filter(a => a.question);
+
+    const result = await handleGeneratePersonalizedQuestions({ answers: formattedAnswers });
+    setPersonalizedQuestions(result.questions);
+    setIsGeneratingPersonalized(false);
+  };
+  
+  const handlePersonalizedAnswerChange = (questionText: string, answerText: string) => {
+    setPersonalizedAnswers(prev => ({...prev, [questionText]: answerText}));
+  }
+
+  const handlePersonalizedSubmit = async () => {
+    if (!submissionId) return;
+
+    setIsSubmittingPersonalized(true);
+    const { error } = await submitPersonalizedAnswers(submissionId, personalizedAnswers);
+    setIsSubmittingPersonalized(false);
+
+    if (error) {
+        toast({ variant: "destructive", title: "Error", description: "Could not save your additional answers." });
+    } else {
+        toast({ title: "Thank you!", description: "Your feedback is valuable." });
+    }
+    onBack(); // Go back after submitting
+  };
+
 
   const renderQuestion = (question: SurveyQuestion, index: number, isSubQuestion: boolean = false) => {
       if (!isQuestionVisible(question)) {
@@ -324,13 +396,43 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   }
 
 
-  if (submitted) {
+  if (submissionId) {
     return (
          <div className="flex flex-col items-center justify-center h-full p-8 text-center">
             <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5 }}>
                 <h2 className="text-2xl font-bold tracking-tight mb-4">Thank You!</h2>
                 <p className="text-muted-foreground mb-6">Your response has been recorded.</p>
-                <Button onClick={onBack}>
+                
+                {showPersonalized && (
+                    <Card className="mt-8 text-left p-6 w-full max-w-lg">
+                       <CardHeader className="p-0 mb-4">
+                         <CardTitle className="flex items-center gap-2"><Sparkles className="text-primary"/> One last thing... (Optional)</CardTitle>
+                         <CardDescription>Based on your answers, we have a few more questions for you.</CardDescription>
+                       </CardHeader>
+                       <CardContent className="p-0 space-y-4">
+                        {isGeneratingPersonalized ? (
+                             <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin" /></div>
+                        ) : personalizedQuestions.length > 0 ? (
+                           <>
+                           {personalizedQuestions.map((q, i) => (
+                               <div key={i} className="space-y-2">
+                                   <Label>{q.questionText}</Label>
+                                   <Textarea onChange={(e) => handlePersonalizedAnswerChange(q.questionText, e.target.value)} />
+                               </div>
+                           ))}
+                           <Button onClick={handlePersonalizedSubmit} disabled={isSubmittingPersonalized} className="w-full mt-4">
+                                {isSubmittingPersonalized ? <Loader2 className="animate-spin" /> : <Send />}
+                                Submit Final Answers
+                           </Button>
+                           </>
+                        ) : (
+                             <p className="text-muted-foreground text-sm">No personalized questions were generated.</p>
+                        )}
+                       </CardContent>
+                    </Card>
+                )}
+
+                <Button onClick={onBack} className="mt-8">
                     <ArrowLeft className="mr-2 h-4 w-4"/>
                     Back to Saved Surveys
                 </Button>
@@ -390,5 +492,3 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     </div>
   );
 }
-
-    

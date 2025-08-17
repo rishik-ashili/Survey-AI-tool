@@ -34,6 +34,7 @@ export interface SavedSurvey {
   title: string;
   questions: SurveyQuestion[];
   created_at: string; // from Supabase
+  has_personalized_questions?: boolean;
 }
 
 // Represents a user's submission for a survey

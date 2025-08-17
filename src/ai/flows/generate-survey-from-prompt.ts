@@ -38,6 +38,7 @@ const GenerateSurveyInputSchema = z.object({
   questionBankContent: z.string().optional().describe('Content from a question bank to integrate.'),
   generateDetailedSurvey: z.boolean().optional().default(false).describe("If true, generate conditional sub-questions for some of the main questions."),
   generateIterativeSurvey: z.boolean().optional().default(false).describe("If true, structure the survey for iterative questions where appropriate (e.g., questions about each family member)."),
+  generatePersonalizedQuestions: z.boolean().optional().default(false).describe("If true, the survey will have an optional section at the end with AI-generated personalized questions."),
 });
 export type GenerateSurveyInput = z.infer<typeof GenerateSurveyInputSchema>;
 

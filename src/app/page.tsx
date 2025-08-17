@@ -2,7 +2,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Loader2, Sparkles, PencilRuler, Eye, Save, ListChecks, Network, GitBranch, Repeat } from "lucide-react";
+import { FileText, Loader2, Sparkles, PencilRuler, Eye, Save, ListChecks, Network, GitBranch, Repeat, MessageCircleQuestion } from "lucide-react";
 
 import type { SurveyQuestion, SavedSurvey } from "@/types";
 import { handleGenerateSurvey, type GenerateSurveyInput } from "@/app/actions";
@@ -54,6 +54,7 @@ export default function Home() {
   // New state for advanced survey options
   const [isDetailed, setIsDetailed] = useState(false);
   const [isIterative, setIsIterative] = useState(false);
+  const [hasPersonalizedQuestions, setHasPersonalizedQuestions] = useState(false);
 
   const { toast } = useToast();
 
@@ -66,16 +67,21 @@ export default function Home() {
     setIsLoading(true);
     setQuestions([]);
     setSurveyTitle(data.prompt || "Generated Survey");
-    setLastGenerationData(data);
+    
+    const generationInput: GenerateSurveyInput = {
+      ...data,
+      numberOfQuestions: 5,
+      existingQuestions: [],
+      generateDetailedSurvey: isDetailed,
+      generateIterativeSurvey: isIterative,
+      generatePersonalizedQuestions: hasPersonalizedQuestions,
+    };
+    
+    setLastGenerationData(generationInput);
+
 
     try {
-      const result = await handleGenerateSurvey({
-        ...data, 
-        numberOfQuestions: 5, 
-        existingQuestions: [],
-        generateDetailedSurvey: isDetailed,
-        generateIterativeSurvey: isIterative,
-      });
+      const result = await handleGenerateSurvey(generationInput);
 
       if (result && result.surveyQuestions.length > 0) {
         const questionsWithIds = assignTemporaryIds(result.surveyQuestions);
@@ -117,6 +123,7 @@ export default function Home() {
         existingQuestions: questions.map(q => q.text),
         generateDetailedSurvey: isDetailed,
         generateIterativeSurvey: isIterative,
+        generatePersonalizedQuestions: hasPersonalizedQuestions,
       });
 
       if (result && result.surveyQuestions.length > 0) {
@@ -219,6 +226,13 @@ export default function Home() {
                       </Label>
                       <Switch id="iterative-survey" checked={isIterative} onCheckedChange={setIsIterative} />
                     </div>
+                    <div className="flex items-center justify-between">
+                       <Label htmlFor="personalized-questions" className="flex flex-col gap-1">
+                        <span className="flex items-center gap-2"><MessageCircleQuestion /> Personalized Questions</span>
+                        <span className="font-normal text-muted-foreground text-sm">Add optional, AI-generated questions at the end.</span>
+                      </Label>
+                      <Switch id="personalized-questions" checked={hasPersonalizedQuestions} onCheckedChange={setHasPersonalizedQuestions} />
+                    </div>
                   </div>
               </SurveyGeneratorForm>
             </div>
@@ -231,6 +245,7 @@ export default function Home() {
                   setTitle={setSurveyTitle}
                   questions={questions}
                   setQuestions={setQuestions}
+                  hasPersonalizedQuestions={hasPersonalizedQuestions}
                   onSaveSuccess={() => {
                     setActiveTab("saved");
                     resetGenerator();
