@@ -32,6 +32,59 @@ export async function handleValidateAnswer(input: ValidateAnswerInput): Promise<
 }
 
 
+async function insertQuestions(supabase: any, questions: Omit<SurveyQuestion, 'id'>[], surveyId: string, parentQuestionDbId?: string) {
+    const questionMap = new Map<string, string>(); // Maps temp client ID to DB ID
+
+    for (const q of questions) {
+        const { sub_questions, ...questionToInsert } = q;
+
+        // Find the DB ID for the iterative source question if it exists
+        const iterativeSourceDbId = q.is_iterative && q.iterative_source_question_id 
+            ? questionMap.get(q.iterative_source_question_id)
+            : null;
+
+        const { data: questionsData, error: questionsError } = await supabase
+            .from('questions')
+            .insert({
+                ...questionToInsert,
+                survey_id: surveyId,
+                parent_question_id: parentQuestionDbId,
+                iterative_source_question_id: iterativeSourceDbId
+            })
+            .select()
+            .single();
+        
+        if (questionsError) {
+            console.error("Error saving question:", questionsError);
+            throw new Error(questionsError.message);
+        }
+
+        const newQuestionDbId = questionsData.id;
+        questionMap.set(q.id, newQuestionDbId);
+
+        // Insert options for multiple-choice questions
+        if ((q.type === 'multiple-choice' || q.type === 'multiple-choice-multi') && q.options) {
+            const optionsToInsert = q.options.map(opt => ({
+                question_id: newQuestionDbId,
+                text: opt.text,
+            }));
+            if (optionsToInsert.length > 0) {
+                const { error: optionsError } = await supabase.from('question_options').insert(optionsToInsert);
+                if (optionsError) {
+                    console.error("Error saving question options:", optionsError);
+                    throw new Error(optionsError.message);
+                }
+            }
+        }
+
+        // Recursively insert sub_questions
+        if (sub_questions && sub_questions.length > 0) {
+            await insertQuestions(supabase, sub_questions, surveyId, newQuestionDbId);
+        }
+    }
+}
+
+
 export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 'id'>[]): Promise<{data: SavedSurvey | null, error: string | null}> {
   const cookieStore = cookies()
   const supabase = createServerClient(
@@ -52,53 +105,15 @@ export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 
     return { data: null, error: surveyError.message };
   }
 
-  // 2. Insert the questions and collect their IDs
-  const questionsToInsert = questions.map(q => ({
-    survey_id: surveyData.id,
-    text: q.text,
-    type: q.type,
-    expected_answers: q.expected_answers,
-    min_range: q.min_range,
-    max_range: q.max_range,
-  }));
-  
-  const { data: questionsData, error: questionsError } = await supabase
-    .from('questions')
-    .insert(questionsToInsert)
-    .select();
-
-  if (questionsError) {
-    console.error("Error saving questions:", questionsError);
-    await supabase.from('surveys').delete().match({ id: surveyData.id }); // Rollback
-    return { data: null, error: questionsError.message };
+  // 2. Recursively insert questions and their sub-questions
+  try {
+    await insertQuestions(supabase, questions, surveyData.id);
+  } catch (error: any) {
+    console.error("Rolling back survey creation due to error:", error);
+    await supabase.from('surveys').delete().match({ id: surveyData.id }); // Rollback survey
+    return { data: null, error: error.message };
   }
 
-  // 3. Prepare and insert question options for multiple-choice questions
-  const optionsToInsert = [];
-  for (let i = 0; i < questions.length; i++) {
-    const originalQuestion = questions[i];
-    const newQuestion = questionsData[i];
-    if ((originalQuestion.type === 'multiple-choice' || originalQuestion.type === 'multiple-choice-multi') && originalQuestion.options) {
-      for (const option of originalQuestion.options) {
-        optionsToInsert.push({
-          question_id: newQuestion.id,
-          text: option.text,
-        });
-      }
-    }
-  }
-
-  if (optionsToInsert.length > 0) {
-    const { error: optionsError } = await supabase
-      .from('question_options')
-      .insert(optionsToInsert);
-
-    if (optionsError) {
-      console.error("Error saving question options:", optionsError);
-      await supabase.from('surveys').delete().match({ id: surveyData.id }); // Rollback
-      return { data: null, error: optionsError.message };
-    }
-  }
 
   // Fetch the full survey data back with questions and options
    const { data: fullSurveyData, error: fetchError } = await getSurveyById(surveyData.id);
@@ -108,6 +123,21 @@ export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 
 
   return { data: fullSurveyData, error: null };
 }
+
+// Helper function to recursively build the question tree
+const buildQuestionTree = (questionsList: SurveyQuestion[]): SurveyQuestion[] => {
+    const questionMap = new Map(questionsList.map(q => [q.id, { ...q, sub_questions: [] }]));
+    const rootQuestions: SurveyQuestion[] = [];
+
+    for (const question of questionMap.values()) {
+        if (question.parent_question_id && questionMap.has(question.parent_question_id)) {
+            questionMap.get(question.parent_question_id)?.sub_questions?.push(question);
+        } else {
+            rootQuestions.push(question);
+        }
+    }
+    return rootQuestions;
+};
 
 
 export async function getSurveyById(surveyId: string): Promise<{ data: SavedSurvey | null; error: string | null }> {
@@ -128,11 +158,16 @@ export async function getSurveyById(surveyId: string): Promise<{ data: SavedSurv
             )
         `)
         .eq('id', surveyId)
+        .order('created_at', { referencedTable: 'questions', ascending: true })
         .single();
     
     if (error) {
         console.error("Error fetching survey by id:", error);
         return { data: null, error: error.message };
+    }
+    
+    if (data && data.questions) {
+        data.questions = buildQuestionTree(data.questions);
     }
 
     return { data, error: null };
@@ -150,11 +185,9 @@ export async function getSavedSurveys(): Promise<{data: SavedSurvey[] | null, er
     const { data, error } = await supabase
         .from('surveys')
         .select(`
-            *,
-            questions (
-                *,
-                options:question_options(*)
-            )
+            id,
+            title,
+            created_at
         `)
         .order('created_at', { ascending: false });
 
@@ -163,7 +196,27 @@ export async function getSavedSurveys(): Promise<{data: SavedSurvey[] | null, er
         return { data: null, error: error.message };
     }
     
-    return { data, error: null };
+    // Fetch questions separately to build the tree structure for each survey
+    const surveysWithQuestions = await Promise.all(data.map(async (survey) => {
+        const { data: questionsData, error: questionsError } = await supabase
+            .from('questions')
+            .select(`
+                *,
+                options:question_options(*)
+            `)
+            .eq('survey_id', survey.id)
+            .order('created_at', { ascending: true });
+
+        if (questionsError) {
+            console.error(`Error fetching questions for survey ${survey.id}:`, questionsError);
+            return { ...survey, questions: [] };
+        }
+        
+        return { ...survey, questions: buildQuestionTree(questionsData || []) };
+    }));
+
+
+    return { data: surveysWithQuestions, error: null };
 }
 
 export async function deleteSurvey(id: string): Promise<{error: string | null}> {
@@ -185,7 +238,7 @@ export async function deleteSurvey(id: string): Promise<{error: string | null}> 
 
 export async function submitSurvey(
     surveyId: string,
-    answers: Record<string, string | number | string[]>,
+    answers: Record<string, any>, // Can now be complex with iterations
     userName: string | undefined,
     metadata: SubmissionMetadata,
 ): Promise<{ error: string | null }> {
@@ -217,12 +270,27 @@ export async function submitSurvey(
         return { error: errorMessage };
     }
 
+    const answersToInsert: { submission_id: string; question_id: string; value: string; iteration?: number }[] = [];
 
-    const answersToInsert = Object.entries(answers).map(([questionId, value]) => ({
-        submission_id: submissionData.id,
-        question_id: questionId,
-        value: Array.isArray(value) ? JSON.stringify(value) : String(value),
-    }));
+    Object.entries(answers).forEach(([questionId, answerData]) => {
+        if (answerData && typeof answerData === 'object' && answerData.isIterative) {
+            (answerData.values as any[]).forEach((value, index) => {
+                answersToInsert.push({
+                    submission_id: submissionData.id,
+                    question_id: questionId,
+                    value: String(value),
+                    iteration: index + 1,
+                });
+            });
+        } else {
+             answersToInsert.push({
+                submission_id: submissionData.id,
+                question_id: questionId,
+                value: Array.isArray(answerData) ? JSON.stringify(answerData) : String(answerData),
+            });
+        }
+    });
+
 
     const { error: answersError } = await supabase
         .from('answers')

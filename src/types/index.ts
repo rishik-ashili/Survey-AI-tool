@@ -18,6 +18,14 @@ export interface SurveyQuestion {
   survey_id?: string; // from Supabase
   min_range?: number;
   max_range?: number;
+  
+  // New properties for advanced surveys
+  parent_question_id?: string | null;
+  trigger_condition_value?: string | null;
+  sub_questions?: SurveyQuestion[]; // For frontend nesting
+
+  is_iterative?: boolean;
+  iterative_source_question_id?: string | null; // The ID of the question that determines the number of loops (e.g., "How many children?")
 }
 
 export interface SavedSurvey {
@@ -42,6 +50,7 @@ export interface SubmissionAnswer {
     submission_id: string;
     question_id: string;
     value: string; // Stored as text, parsed based on question type
+    iteration?: number; // For iterative questions
 }
 
 export interface SurveyResult {
@@ -59,6 +68,9 @@ export interface SurveyResult {
     question_text: string;
     question_type: QuestionType;
     answer_value: string;
+    parent_question_id?: string | null;
+    is_iterative?: boolean;
+    iterative_source_question_id?: string | null;
 }
 
 export interface SubmissionMetadata {

@@ -36,6 +36,7 @@ type SurveyGeneratorFormProps = {
     questionBankContent: string;
   }) => void;
   isLoading: boolean;
+  children?: React.ReactNode;
 };
 
 const censusInstructions = `
@@ -70,6 +71,7 @@ const toneButtons = [
 export default function SurveyGeneratorForm({
   onGenerateSurvey,
   isLoading,
+  children
 }: SurveyGeneratorFormProps) {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -187,6 +189,9 @@ export default function SurveyGeneratorForm({
             </FormItem>
           )}
         />
+
+        {children}
+
         <Button type="submit" disabled={isLoading} className="w-full" size="lg">
           {isLoading ? (
             <>

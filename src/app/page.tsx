@@ -2,10 +2,10 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Loader2, Sparkles, PencilRuler, Eye, Save, ListChecks } from "lucide-react";
+import { FileText, Loader2, Sparkles, PencilRuler, Eye, Save, ListChecks, Network, GitBranch, Repeat } from "lucide-react";
 
 import type { SurveyQuestion, SavedSurvey } from "@/types";
-import { handleGenerateSurvey, type GenerateSurveyInput, type GenerateSurveyOutput } from "@/app/actions";
+import { handleGenerateSurvey, type GenerateSurveyInput } from "@/app/actions";
 import { useToast } from "@/hooks/use-toast";
 import Logo from "@/components/logo";
 import SurveyGeneratorForm from "@/components/survey-generator-form";
@@ -15,6 +15,33 @@ import SavedSurveysList from "@/components/saved-surveys-list";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import AddMoreQuestionsDialog from "@/components/add-more-questions-dialog";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+
+// Helper to recursively assign temporary unique IDs
+const assignTemporaryIds = (questions: any[]): SurveyQuestion[] => {
+  return questions.map((q, i) => {
+    const questionId = `q-${Date.now()}-${i}`;
+    const newQuestion: SurveyQuestion = {
+      ...q,
+      id: questionId,
+      options: q.options?.map((opt: any, j: number) => ({ id: `opt-${questionId}-${j}`, text: opt.text })),
+    };
+    if (q.sub_questions) {
+      newQuestion.sub_questions = q.sub_questions.map((subQ: any, k: number) => {
+         const subQuestionId = `q-${Date.now()}-sub-${i}-${k}`;
+         return {
+           ...subQ,
+           id: subQuestionId,
+           parent_question_id: questionId,
+           options: subQ.options?.map((opt: any, l: number) => ({ id: `opt-${subQuestionId}-${l}`, text: opt.text })),
+         }
+      })
+    }
+    return newQuestion;
+  });
+};
+
 
 export default function Home() {
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
@@ -23,6 +50,11 @@ export default function Home() {
   const [surveyTitle, setSurveyTitle] = useState("Your Awesome Survey");
   const [activeTab, setActiveTab] = useState("generator");
   const [lastGenerationData, setLastGenerationData] = useState<Omit<GenerateSurveyInput, 'existingQuestions' | 'numberOfQuestions'> | null>(null);
+  
+  // New state for advanced survey options
+  const [isDetailed, setIsDetailed] = useState(false);
+  const [isIterative, setIsIterative] = useState(false);
+
   const { toast } = useToast();
 
   const handleSurveyGeneration = async (data: {
@@ -37,19 +69,21 @@ export default function Home() {
     setLastGenerationData(data);
 
     try {
-      const result = await handleGenerateSurvey({...data, numberOfQuestions: 5, existingQuestions: [] });
+      const result = await handleGenerateSurvey({
+        ...data, 
+        numberOfQuestions: 5, 
+        existingQuestions: [],
+        generateDetailedSurvey: isDetailed,
+        generateIterativeSurvey: isIterative,
+      });
+
       if (result && result.surveyQuestions.length > 0) {
-        setQuestions(
-          result.surveyQuestions.map((q, i) => ({
-            id: `q-${Date.now()}-${i}`, // Temporary ID for client-side
-            text: q.text,
-            type: q.type,
-            options: q.options?.map((opt, j) => ({ id: `opt-${Date.now()}-${i}-${j}`, text: opt.text }))
-          }))
-        );
+        const questionsWithIds = assignTemporaryIds(result.surveyQuestions);
+        setQuestions(questionsWithIds);
+        
         toast({
           title: "Survey Generated!",
-          description: "Your survey is ready for review.",
+          description: "Your survey is ready for review in the Builder tab.",
         });
         setActiveTab("builder");
       } else {
@@ -81,16 +115,12 @@ export default function Home() {
         prompt: updatedPrompt || lastGenerationData.prompt,
         numberOfQuestions: 5,
         existingQuestions: questions.map(q => q.text),
+        generateDetailedSurvey: isDetailed,
+        generateIterativeSurvey: isIterative,
       });
 
       if (result && result.surveyQuestions.length > 0) {
-        const newQuestions = result.surveyQuestions.map((q, i) => ({
-            id: `q-${Date.now()}-more-${i}`, // Temporary ID
-            text: q.text,
-            type: q.type,
-            options: q.options?.map((opt, j) => ({ id: `opt-${Date.now()}-more-${i}-${j}`, text: opt.text }))
-        }));
-
+        const newQuestions = assignTemporaryIds(result.surveyQuestions);
         setQuestions(prev => [...prev, ...newQuestions]);
         toast({
           title: "Added More Questions!",
@@ -172,7 +202,25 @@ export default function Home() {
               <SurveyGeneratorForm
                 onGenerateSurvey={handleSurveyGeneration}
                 isLoading={isLoading}
-              />
+              >
+                 <div className="space-y-4 rounded-lg border p-4">
+                    <h3 className="text-lg font-medium">Advanced Options</h3>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="detailed-survey" className="flex flex-col gap-1">
+                        <span className="flex items-center gap-2"><GitBranch /> Detailed Survey</span>
+                        <span className="font-normal text-muted-foreground text-sm">Generate conditional sub-questions.</span>
+                      </Label>
+                      <Switch id="detailed-survey" checked={isDetailed} onCheckedChange={setIsDetailed} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                       <Label htmlFor="iterative-survey" className="flex flex-col gap-1">
+                        <span className="flex items-center gap-2"><Repeat /> Iterative Survey</span>
+                        <span className="font-normal text-muted-foreground text-sm">Generate looping questions for repeated data entry.</span>
+                      </Label>
+                      <Switch id="iterative-survey" checked={isIterative} onCheckedChange={setIsIterative} />
+                    </div>
+                  </div>
+              </SurveyGeneratorForm>
             </div>
           </TabsContent>
           <TabsContent value="builder" className="flex-1 overflow-y-auto p-4 md:p-8">
