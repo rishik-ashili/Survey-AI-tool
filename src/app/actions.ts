@@ -316,17 +316,16 @@ export async function submitSurvey(
         return { submissionId: null, error: errorMessage };
     }
 
-    const answersToInsert: { submission_id: string; question_id: string; value: string; iteration?: number }[] = [];
+    const answersToInsert: { submission_id: string; question_id: string; value: string; }[] = [];
 
     Object.entries(answers).forEach(([questionId, answerData]) => {
         if (answerData && typeof answerData === 'object' && answerData.isIterative) {
-            (answerData.values as any[]).forEach((value, index) => {
+            (answerData.values as any[]).forEach((value) => {
                 if (value !== undefined && value !== null) { // Only insert if there's a value
                     answersToInsert.push({
                         submission_id: submissionData.id,
                         question_id: questionId,
                         value: String(value),
-                        iteration: index + 1,
                     });
                 }
             });
@@ -406,3 +405,5 @@ export async function getSurveyResults(surveyId: string): Promise<{data: SurveyR
     
     return { data, error: null };
 }
+
+    
