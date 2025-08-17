@@ -35,7 +35,7 @@ type CurrentQuestionInfo = {
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [submitted, setSubmitted] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(isSubmitting);
   const [userName, setUserName] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [metadata, setMetadata] = useState<SubmissionMetadata>({});
@@ -75,30 +75,39 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
               sq => sq.trigger_condition_value === String(lastAnswer)
           );
           if (triggeredSubQuestion) {
-              return { question: triggeredSubQuestion, path: `${currentInfo.path}.0` };
+               const subQuestionIndex = currentQuestion.sub_questions.indexOf(triggeredSubQuestion);
+              return { question: triggeredSubQuestion, path: `${currentInfo.path}.${subQuestionIndex}` };
           }
       }
 
       // 2. Check for iteration
-      const nextIterationQuestion = questionMap.get(
-        [...questionMap.values()].find(q => q.is_iterative && q.iterative_source_question_id === currentQuestion.id)?.id || ''
-      );
+      const nextIterationQuestion = [...questionMap.values()].find(q => q.is_iterative && q.iterative_source_question_id === currentQuestion.id);
       if (nextIterationQuestion && !isNaN(Number(lastAnswer)) && Number(lastAnswer) > 0) {
-          return { question: nextIterationQuestion, path: 'iterative_start', iteration: 1 };
+          const iterativeQuestionIndex = [...questionMap.values()].indexOf(nextIterationQuestion);
+          return { question: nextIterationQuestion, path: `q${iterativeQuestionIndex}`, iteration: 1 };
       }
 
+
       // 3. Move to next sibling or parent's sibling
-      const pathParts = currentInfo.path.split('.').map(Number);
+      const pathParts = currentInfo.path.split('.').map(part => isNaN(Number(part)) ? part : Number(part));
+      
       let currentLevelQuestions = survey.questions;
-      let parent: SurveyQuestion | undefined;
+      let parentPath = '';
+
 
       for (let i = 0; i < pathParts.length - 1; i++) {
-        parent = currentLevelQuestions[pathParts[i]];
-        currentLevelQuestions = parent?.sub_questions || [];
+        const part = pathParts[i];
+        if (typeof part === 'number') {
+            const parent = currentLevelQuestions[part];
+            if (parent) {
+                currentLevelQuestions = parent?.sub_questions || [];
+                parentPath = parentPath ? `${parentPath}.${part}` : `${part}`;
+            }
+        }
       }
       
       const currentIndex = pathParts[pathParts.length - 1];
-      if (currentIndex + 1 < currentLevelQuestions.length) {
+      if (typeof currentIndex === 'number' && currentIndex + 1 < currentLevelQuestions.length) {
           const nextSibling = currentLevelQuestions[currentIndex + 1];
           pathParts[pathParts.length - 1]++;
           return { question: nextSibling, path: pathParts.join('.') };
@@ -124,10 +133,13 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                 return { ...currentQuestionInfo, iteration: currentQuestionInfo.iteration + 1 };
             } 
             // Iteration finished, find what's next after the source question
-            const sourceQuestionInfo = tempHistory.find(h => h.question.id === sourceQuestionId);
-            if (sourceQuestionInfo) {
+            const sourceQuestionInfo = tempHistory.find(h => h.question.id === sourceQuestionId) || currentQuestionInfo;
+             if (sourceQuestionInfo) {
                 nextInfo = findNextQuestion(sourceQuestionInfo, sourceAnswer);
-                tempHistory = tempHistory.slice(0, tempHistory.indexOf(sourceQuestionInfo) + 1);
+                const sourceQuestionIndexInHistory = tempHistory.findIndex(h => h.question.id === sourceQuestionId);
+                if (sourceQuestionIndexInHistory > -1) {
+                  tempHistory = tempHistory.slice(0, sourceQuestionIndexInHistory + 1);
+                }
             }
         } else {
             nextInfo = findNextQuestion(currentQuestionInfo, lastAnswer);
@@ -153,14 +165,39 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
 
     // Validation
     const newErrors: ValidationErrors = {};
-    if (answer === undefined || answer === '' || (Array.isArray(answer) && answer.length === 0)) {
+    if (answer === undefined || answer === null || answer === '' || (Array.isArray(answer) && answer.length === 0)) {
         newErrors[question.id] = { message: 'This question is required.' };
+    } else if (question.type === 'number') {
+        const numAnswer = Number(answer);
+        if (question.min_range !== undefined && question.min_range !== null && numAnswer < question.min_range) {
+             newErrors[question.id] = { message: `Value must be at least ${question.min_range}.` };
+        }
+        if (question.max_range !== undefined && question.max_range !== null && numAnswer > question.max_range) {
+             newErrors[question.id] = { message: `Value must be at most ${question.max_range}.` };
+        }
     }
-    // More validation logic here...
+    
     if (Object.keys(newErrors).length > 0) {
         setErrors(newErrors);
         return;
     }
+    
+     const validationInput = {
+        question: question.text,
+        answer: String(answer),
+        expected_answers: question.expected_answers,
+        // Example context, can be made dynamic later
+        context: 'This survey is for residents of India.' 
+    };
+
+    if (question.type === 'text') {
+        const validationResult = await handleValidateAnswer(validationInput);
+        if (!validationResult.isValid) {
+            setErrors({[question.id]: { message: validationResult.suggestion, suggestion: validationResult.suggestion }});
+            return;
+        }
+    }
+
 
     const nextInfo = getNextQuestion(answer);
     
@@ -169,6 +206,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         setCurrentQuestionInfo(nextInfo);
     } else {
         // No more questions, survey is finished
+        setHistory(prev => [...prev, currentQuestionInfo]);
         setCurrentQuestionInfo(null);
         toast({ title: "All questions answered!", description: "You can now submit your survey."})
     }
@@ -294,7 +332,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
           <CardTitle className="text-center text-2xl font-bold">{survey.title}</CardTitle>
           <CardDescription className="text-center">Please answer the questions below.</CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={(e) => { e.preventDefault(); handleNext(); }}>
             <CardContent className="space-y-6 min-h-[300px]">
               <AnimatePresence mode="wait">
               {currentQuestionInfo ? (
@@ -345,7 +383,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                         Next <ChevronsRight className="ml-2 h-4 w-4"/>
                     </Button>
                 ) : (
-                    <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
+                    <Button type="button" onClick={handleSubmit} className="w-full" size="lg" disabled={isSubmitting}>
                         {isSubmitting ? <Loader2 className="mr-2 animate-spin" /> : <Send className="mr-2"/>}
                         {isSubmitting ? 'Submitting...' : 'Submit Survey'}
                     </Button>
@@ -356,3 +394,5 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     </div>
   );
 }
+ 
+    
