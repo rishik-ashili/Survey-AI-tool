@@ -62,30 +62,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     return map;
   }, [survey.questions]);
 
-
-  useEffect(() => {
-    // This effect runs once to kick off the survey
-    const startSurvey = async () => {
-      if (survey.questions.length > 0) {
-        const firstQuestionInfo = { question: survey.questions[0], path: '0' };
-        // We need to check if we should even ask the first question
-        const { shouldAsk } = await handleShouldAskQuestion({
-          question: firstQuestionInfo.question.text,
-          previousAnswers: []
-        });
-        if (shouldAsk) {
-          setCurrentQuestionInfo(firstQuestionInfo);
-        } else {
-          // This case is unlikely for the first question but handled for completeness
-          const skippedHistory: HistoryItem = { questionInfo: firstQuestionInfo, answer: '[SKIPPED_BY_AI]' };
-          const nextInfo = await getNextQuestion([skippedHistory]);
-          setCurrentQuestionInfo(nextInfo);
-        }
-      }
-    };
-    startSurvey();
-  }, [survey.questions, getNextQuestion]);
-
   const getQuestionFromPath = useCallback((path: string): SurveyQuestion | undefined => {
     return questionMap.get(path);
   }, [questionMap]);
@@ -106,7 +82,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
 
         return null; // Reached end of survey
   }, [questionMap]);
-
 
   const getNextQuestion = useCallback(async (historyStack: HistoryItem[]): Promise<CurrentQuestionInfo | null> => {
       if (historyStack.length === 0 && survey.questions.length > 0) {
@@ -182,6 +157,17 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       return null;
   }, [findNextQuestionPath, getQuestionFromPath, questionMap, survey.questions]);
 
+  useEffect(() => {
+    // This effect runs once to kick off the survey
+    const startSurvey = async () => {
+      if (survey.questions.length > 0) {
+        // Start with an empty history stack
+        const nextInfo = await getNextQuestion([]);
+        setCurrentQuestionInfo(nextInfo);
+      }
+    };
+    startSurvey();
+  }, [survey.questions, getNextQuestion]);
 
   const handleNext = async () => {
     if (!currentQuestionInfo) return;
