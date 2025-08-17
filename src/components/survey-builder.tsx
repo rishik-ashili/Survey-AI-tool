@@ -235,7 +235,7 @@ export default function SurveyBuilder({
                                 type="number"
                                 placeholder="Min"
                                 value={question.min_range ?? ''}
-                                onChange={(e) => handleUpdateQuestion(question.id, 'min_range', e.target.valueAsNumber)}
+                                onChange={(e) => handleUpdateQuestion(question.id, 'min_range', e.target.valueAsNumber || undefined)}
                                 className="text-sm w-24"
                             />
                              <span className="text-muted-foreground">-</span>
@@ -244,7 +244,7 @@ export default function SurveyBuilder({
                                 type="number"
                                 placeholder="Max"
                                 value={question.max_range ?? ''}
-                                onChange={(e) => handleUpdateQuestion(question.id, 'max_range', e.target.valueAsNumber)}
+                                onChange={(e) => handleUpdateQuestion(question.id, 'max_range', e.target.valueAsNumber || undefined)}
                                 className="text-sm w-24"
                             />
                         </div>
@@ -285,3 +285,5 @@ export default function SurveyBuilder({
     </div>
   );
 }
+
+    
