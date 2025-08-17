@@ -1,38 +1,27 @@
 
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import type { SavedSurvey, SurveyQuestion, SubmissionMetadata } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Send, User, VenetianMask, Loader2, ChevronsRight } from 'lucide-react';
+import { ArrowLeft, Send, User, VenetianMask, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Input } from './ui/input';
 import { Checkbox } from './ui/checkbox';
-import { submitSurvey, handleValidateAnswer, handleShouldAskQuestion } from '@/app/actions';
+import { submitSurvey, handleValidateAnswer } from '@/app/actions';
+import { Separator } from './ui/separator';
 
 type AttemptSurveyProps = {
   survey: SavedSurvey;
   onBack: () => void;
 };
 
-type ValidationErrors = Record<string, { message: string, suggestion?: string }>;
-
-type CurrentQuestionInfo = {
-    question: SurveyQuestion;
-    path: string; 
-    iteration?: number; 
-};
-
-type HistoryItem = {
-    questionInfo: CurrentQuestionInfo;
-    answer: any;
-};
-
+type ValidationErrors = Record<string, string>;
 
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -43,206 +32,25 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [metadata, setMetadata] = useState<SubmissionMetadata>({});
   const [errors, setErrors] = useState<ValidationErrors>({});
   const { toast } = useToast();
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [currentQuestionInfo, setCurrentQuestionInfo] = useState<CurrentQuestionInfo | null>(null);
-  const [isNavigating, setIsNavigating] = useState(false);
 
-  const questionMap = useMemo(() => {
-    const map = new Map<string, SurveyQuestion>();
-    const traverse = (questions: SurveyQuestion[], prefix: string) => {
-        questions.forEach((q, index) => {
-            const path = prefix ? `${prefix}.${index}` : `${index}`;
-            map.set(path, q);
-            if (q.sub_questions) {
-                traverse(q.sub_questions, path);
-            }
-        });
+  const handleAnswerChange = (questionId: string, value: any, isIterative: boolean = false, iterationIndex?: number) => {
+    setErrors(prev => {
+      const newErrors = {...prev};
+      delete newErrors[questionId + (isIterative ? `-${iterationIndex}`: '')];
+      return newErrors;
+    });
+
+    if (isIterative && iterationIndex !== undefined) {
+      setAnswers(prev => {
+        const existingValues = (prev[questionId] && prev[questionId].values) ? [...prev[questionId].values] : [];
+        existingValues[iterationIndex] = value;
+        return { ...prev, [questionId]: { isIterative: true, values: existingValues } };
+      });
+    } else {
+      setAnswers(prev => ({ ...prev, [questionId]: value }));
     }
-    traverse(survey.questions, '');
-    return map;
-  }, [survey.questions]);
-
-  const getQuestionFromPath = useCallback((path: string): SurveyQuestion | undefined => {
-    return questionMap.get(path);
-  }, [questionMap]);
-
-  const findNextQuestionPath = useCallback((path: string): string | null => {
-        const pathParts = path.split('.').map(Number);
-
-        // Try to find next sibling
-        const nextSiblingPath = [...pathParts.slice(0, -1), pathParts.at(-1)! + 1].join('.');
-        if (questionMap.has(nextSiblingPath)) {
-            return nextSiblingPath;
-        }
-
-        // If no sibling, go up to parent and find its next sibling
-        if (pathParts.length > 1) {
-            return findNextQuestionPath(pathParts.slice(0, -1).join('.'));
-        }
-
-        return null; // Reached end of survey
-  }, [questionMap]);
-
-  const getNextQuestion = useCallback(async (historyStack: HistoryItem[]): Promise<CurrentQuestionInfo | null> => {
-      if (historyStack.length === 0 && survey.questions.length > 0) {
-        const firstInfo = { question: survey.questions[0], path: '0' };
-         const { shouldAsk } = await handleShouldAskQuestion({ question: firstInfo.question.text, previousAnswers: [] });
-         if (shouldAsk) return firstInfo;
-         // If first question is skipped, start evaluation from that skipped point
-         return getNextQuestion([{ questionInfo: firstInfo, answer: '[SKIPPED_BY_AI]'}]);
-      }
-      if (historyStack.length === 0) {
-        return null;
-      }
-
-      const lastHistoryItem = historyStack.at(-1)!;
-      const { questionInfo: lastQuestionInfo, answer: lastAnswer } = lastHistoryItem;
-      const lastQuestion = lastQuestionInfo.question;
-
-      // 1. Handle being IN an iteration
-      if (lastQuestionInfo.iteration) {
-          const sourceQuestionId = lastQuestion.iterative_source_question_id;
-          const sourceAnswerItem = historyStack.find(h => h.questionInfo.question.id === sourceQuestionId);
-          const totalIterations = Number(sourceAnswerItem?.answer || 0);
-
-          if (lastQuestionInfo.iteration < totalIterations) {
-              return { ...lastQuestionInfo, iteration: lastQuestionInfo.iteration + 1 };
-          }
-          // Iteration finished, so we fall through to find the next question after the iterative block
-      }
-      
-      // 2. Check for triggered sub-questions from the last answer
-      if (lastQuestion.sub_questions && lastQuestion.sub_questions.length > 0) {
-          const triggeredSubQuestion = lastQuestion.sub_questions.find(
-              sq => String(sq.trigger_condition_value).toLowerCase() === String(lastAnswer).toLowerCase()
-          );
-          if (triggeredSubQuestion) {
-              const subQuestionIndex = lastQuestion.sub_questions.indexOf(triggeredSubQuestion);
-              const nextPath = `${lastQuestionInfo.path}.sub_questions.${subQuestionIndex}`; // Path correction
-              
-              const questionFromPath = getQuestionFromPath(nextPath.replace('.sub_questions',''));
-
-              if(questionFromPath) {
-                 const nextInfo = { question: questionFromPath, path: nextPath.replace('.sub_questions','') };
-                  const { shouldAsk } = await handleShouldAskQuestion({ question: nextInfo.question.text, previousAnswers: historyStack.map(h => ({ question: h.questionInfo.question.text, answer: String(h.answer) })) });
-                  if (shouldAsk) return nextInfo;
-                  return getNextQuestion([...historyStack, { questionInfo: nextInfo, answer: '[SKIPPED_BY_AI]' }]);
-              }
-          }
-      }
-
-       // 3. Check if we should START a new iteration based on the last answer
-      const questionsArray = Array.from(questionMap.values());
-      const nextIterativeQuestion = questionsArray.find(q => q.is_iterative && q.iterative_source_question_id === lastQuestion.id);
-      
-      if (nextIterativeQuestion && !isNaN(Number(lastAnswer)) && Number(lastAnswer) > 0) {
-          const iterativeQuestionPath = [...questionMap.entries()].find(([, q]) => q.id === nextIterativeQuestion.id)?.[0];
-          if(iterativeQuestionPath) {
-            const nextInfo = { question: nextIterativeQuestion, path: iterativeQuestionPath, iteration: 1 };
-            // Don't need to check AI here, first iteration should always run
-            return nextInfo; 
-          }
-      }
-      
-      // 4. Find next question in sequence (sibling or parent's sibling)
-      const nextPath = findNextQuestionPath(lastQuestionInfo.path);
-      if (nextPath) {
-        const nextQuestion = getQuestionFromPath(nextPath)!;
-        const nextInfo = { question: nextQuestion, path: nextPath };
-
-        const { shouldAsk } = await handleShouldAskQuestion({ question: nextInfo.question.text, previousAnswers: historyStack.map(h => ({ question: h.questionInfo.question.text, answer: String(h.answer) })) });
-
-        if (shouldAsk) {
-          return nextInfo;
-        } else {
-          return getNextQuestion([...historyStack, { questionInfo: nextInfo, answer: '[SKIPPED_BY_AI]' }]);
-        }
-      }
-
-      return null;
-  }, [findNextQuestionPath, getQuestionFromPath, questionMap, survey.questions]);
-
-  useEffect(() => {
-    const startSurvey = async () => {
-      if (survey.questions.length > 0) {
-        const nextInfo = await getNextQuestion([]);
-        setCurrentQuestionInfo(nextInfo);
-      }
-    };
-    startSurvey();
-  }, [survey.questions, getNextQuestion]);
-
-  const handleNext = async () => {
-    if (!currentQuestionInfo) return;
-    setIsNavigating(true);
-
-    const { question, iteration } = currentQuestionInfo;
-    const answer = iteration 
-      ? (answers[question.id]?.values || [])[iteration -1]
-      : answers[question.id];
-
-    // Validation
-    const newErrors: ValidationErrors = {};
-    if (answer === undefined || answer === null || answer === '' || (Array.isArray(answer) && answer.length === 0)) {
-        newErrors[question.id] = { message: 'This question is required.' };
-    } else if (question.type === 'number') {
-        const numAnswer = Number(answer);
-        if (question.min_range !== undefined && question.min_range !== null && numAnswer < question.min_range) {
-             newErrors[question.id] = { message: `Value must be at least ${question.min_range}.` };
-        }
-        if (question.max_range !== undefined && question.max_range !== null && numAnswer > question.max_range) {
-             newErrors[question.id] = { message: `Value must be at most ${question.max_range}.` };
-        }
-    }
-    
-    if (Object.keys(newErrors).length > 0) {
-        setErrors(newErrors);
-        setIsNavigating(false);
-        return;
-    }
-    
-     const validationInput = {
-        question: question.text,
-        answer: String(answer),
-        expected_answers: question.expected_answers
-    };
-
-    if (question.type === 'text') {
-        const validationResult = await handleValidateAnswer(validationInput);
-        if (!validationResult.isValid) {
-            setErrors({[question.id]: { message: validationResult.suggestion, suggestion: validationResult.suggestion }});
-            setIsNavigating(false);
-            return;
-        }
-    }
-
-    const newHistoryItem: HistoryItem = { questionInfo: currentQuestionInfo, answer: answer };
-    const updatedHistory = [...history, newHistoryItem];
-    setHistory(updatedHistory);
-    
-    const nextInfo = await getNextQuestion(updatedHistory);
-    
-    setCurrentQuestionInfo(nextInfo);
-    if (!nextInfo) {
-        toast({ title: "All questions answered!", description: "You can now submit your survey."})
-    }
-    setIsNavigating(false);
-  }
-  
-  const handleAnswerChange = (questionId: string, value: string | number | string[], iteration?: number) => {
-      setErrors({}); // Clear errors on change
-      if (iteration) {
-          setAnswers(prev => {
-              const existing = prev[questionId] || { isIterative: true, values: [] };
-              const newValues = [...existing.values];
-              newValues[iteration - 1] = value;
-              return { ...prev, [questionId]: { ...existing, values: newValues }};
-          })
-      } else {
-        setAnswers((prev) => ({ ...prev, [questionId]: value }));
-      }
   };
-
+  
   const handleMultipleChoiceChange = (questionId: string, optionText: string, isChecked: boolean) => {
     const currentAnswers = (answers[questionId] as string[] | undefined) || [];
     const newAnswers = isChecked
@@ -251,18 +59,47 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     handleAnswerChange(questionId, newAnswers);
   };
 
+  const getIterationCount = (question: SurveyQuestion) => {
+    if (!question.is_iterative || !question.iterative_source_question_id) return 1;
+    const sourceAnswer = answers[question.iterative_source_question_id];
+    const count = Number(sourceAnswer);
+    return !isNaN(count) && count > 0 ? count : 0;
+  };
+  
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (currentQuestionInfo !== null) {
-        toast({ variant: "destructive", title: "Survey not complete", description: "Please answer all questions before submitting."});
-        return;
-    }
-    if (!isAnonymous && !userName) {
-        toast({ variant: "destructive", title: "Name Required", description: "Please enter your name or check the anonymous box." });
-        return;
+    setIsSubmitting(true);
+    setErrors({});
+    
+    // --- AI Validation Step ---
+    let allValid = true;
+    const newErrors: ValidationErrors = {};
+
+    for (const question of survey.questions) {
+      if (question.type === 'text') { // Only validate text inputs for now
+        const answer = answers[question.id];
+        if (answer) {
+          const validationResult = await handleValidateAnswer({
+            question: question.text,
+            answer: String(answer),
+            expected_answers: question.expected_answers,
+          });
+          if (!validationResult.isValid) {
+            allValid = false;
+            newErrors[question.id] = validationResult.suggestion || "This answer seems invalid.";
+          }
+        }
+      }
     }
 
-    setIsSubmitting(true);
+    if (!allValid) {
+      setErrors(newErrors);
+      toast({ variant: "destructive", title: "Validation Failed", description: "Please review your answers." });
+      setIsSubmitting(false);
+      return;
+    }
+
+    // --- Submission Step ---
     const { error } = await submitSurvey(survey.id, answers, isAnonymous ? undefined : userName, metadata);
     setIsSubmitting(false);
 
@@ -273,6 +110,81 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         toast({ title: "Survey Submitted!", description: "Thank you for your feedback." });
     }
   };
+  
+  const renderQuestion = (question: SurveyQuestion, index: number, isSubQuestion: boolean = false) => {
+      // Conditional logic for sub-questions
+      if (isSubQuestion && question.parent_question_id) {
+          const parentAnswer = answers[question.parent_question_id];
+          if (String(parentAnswer).toLowerCase() !== String(question.trigger_condition_value).toLowerCase()) {
+              return null; // Don't render sub-question if condition isn't met
+          }
+      }
+      
+      const iterationCount = getIterationCount(question);
+      const isIterative = question.is_iterative && iterationCount > 0;
+
+      return (
+        <Fragment key={question.id}>
+          <AnimatePresence>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className={`space-y-4 ${isSubQuestion ? 'ml-6 pl-6 border-l-2' : ''}`}
+            >
+              {[...Array(iterationCount)].map((_, iterIndex) => {
+                  const uniqueId = question.id + (isIterative ? `-${iterIndex}` : '');
+                  const value = isIterative ? (answers[question.id]?.values || [])[iterIndex] : answers[question.id];
+                  const error = errors[uniqueId];
+
+                  return (
+                    <div key={uniqueId} className="space-y-3 animate-fade-in py-4">
+                      <Label htmlFor={`answer-${uniqueId}`} className="text-base flex gap-2">
+                        <span>{!isSubQuestion && `${index + 1}.`}</span> 
+                        {question.text}
+                        {isIterative && ` (Entry ${iterIndex + 1})`}
+                      </Label>
+                      
+                      {(() => {
+                        switch(question.type) {
+                            case 'text':
+                                return <Textarea placeholder="Your answer..." value={value || ''} onChange={e => handleAnswerChange(question.id, e.target.value, isIterative, iterIndex)} className={error ? 'border-destructive' : ''} />;
+                            case 'number':
+                                return <Input type="number" placeholder="Enter a number" value={value || ''} onChange={e => handleAnswerChange(question.id, e.target.value, isIterative, iterIndex)} className={error ? 'border-destructive' : ''} />;
+                            case 'yes-no':
+                                return <RadioGroup onValueChange={(v) => handleAnswerChange(question.id, v, isIterative, iterIndex)} value={value || ''}>
+                                    <div className="flex items-center space-x-2"><RadioGroupItem value="Yes" id={`yes-${uniqueId}`} /><Label htmlFor={`yes-${uniqueId}`}>Yes</Label></div>
+                                    <div className="flex items-center space-x-2"><RadioGroupItem value="No" id={`no-${uniqueId}`} /><Label htmlFor={`no-${uniqueId}`}>No</Label></div>
+                                </RadioGroup>;
+                            case 'multiple-choice':
+                                return <RadioGroup onValueChange={(v) => handleAnswerChange(question.id, v, isIterative, iterIndex)} value={value || ''} className="space-y-2">
+                                    {question.options?.map(opt => <div key={opt.id} className="flex items-center space-x-2"><RadioGroupItem value={opt.text} id={`mc-${uniqueId}-${opt.id}`} /><Label htmlFor={`mc-${uniqueId}-${opt.id}`}>{opt.text}</Label></div>)}
+                                </RadioGroup>;
+                            case 'multiple-choice-multi':
+                                return <div className="space-y-2">
+                                {question.options?.map(option => (
+                                    <div key={option.id} className="flex items-center space-x-2">
+                                        <Checkbox id={`mcm-${uniqueId}-${option.id}`} onCheckedChange={(checked) => handleMultipleChoiceChange(question.id, option.text, !!checked)} checked={((answers[question.id] as string[]) || []).includes(option.text)} />
+                                        <Label htmlFor={`mcm-${uniqueId}-${option.id}`}>{option.text}</Label>
+                                    </div>
+                                ))}
+                                </div>;
+                            default: return null;
+                        }
+                      })()}
+                      {error && <p className="text-sm text-destructive mt-2">{error}</p>}
+                      
+                      {/* Recursively render sub-questions */}
+                      {question.sub_questions?.map((sub, subIndex) => renderQuestion(sub, subIndex, true))}
+                    </div>
+                  );
+              })}
+            </motion.div>
+          </AnimatePresence>
+          {!isSubQuestion && index < survey.questions.length - 1 && <Separator />}
+        </Fragment>
+      );
+  }
 
   if (submitted) {
     return (
@@ -289,55 +201,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     )
   }
 
-  const renderInput = (qInfo: CurrentQuestionInfo) => {
-      const question = qInfo.question;
-      const value = qInfo.iteration 
-        ? (answers[question.id]?.values || [])[qInfo.iteration - 1]
-        : answers[question.id];
-      const error = errors[question.id];
-
-      return (
-          <>
-            {(() => {
-                switch (question.type) {
-                    case 'number':
-                        return <Input id={`answer-${question.id}`} type="number" value={value || ''} onChange={(e) => handleAnswerChange(question.id, e.target.value, qInfo.iteration)} required className={error ? 'border-destructive' : ''} />
-                    case 'yes-no':
-                        return (
-                            <RadioGroup onValueChange={(v) => handleAnswerChange(question.id, v, qInfo.iteration)} value={value as string || ''} className={error ? 'rounded-md border border-destructive p-2' : ''}>
-                                <div className="flex items-center space-x-2"><RadioGroupItem value="Yes" id={`yes-${question.id}`} /><Label htmlFor={`yes-${question.id}`}>Yes</Label></div>
-                                <div className="flex items-center space-x-2"><RadioGroupItem value="No" id={`no-${question.id}`} /><Label htmlFor={`no-${question.id}`}>No</Label></div>
-                            </RadioGroup>
-                        )
-                    case 'multiple-choice':
-                         return (
-                             <RadioGroup onValueChange={(v) => handleAnswerChange(question.id, v, qInfo.iteration)} value={value as string || ''} className={`space-y-2 ${error ? 'rounded-md border border-destructive p-2' : ''}`}>
-                                {question.options?.map(option => (
-                                    <div key={option.id} className="flex items-center space-x-2"><RadioGroupItem value={option.text} id={`${question.id}-${option.id}`} /><Label htmlFor={`${question.id}-${option.id}`}>{option.text}</Label></div>
-                                ))}
-                            </RadioGroup>
-                        )
-                    case 'multiple-choice-multi':
-                         return (
-                            <div className={`space-y-2 ${error ? 'rounded-md border border-destructive p-2' : ''}`}>
-                                {question.options?.map(option => (
-                                    <div key={option.id} className="flex items-center space-x-2">
-                                        <Checkbox id={`${question.id}-${option.id}`} onCheckedChange={(checked) => handleMultipleChoiceChange(question.id, option.text, !!checked)} checked={((answers[question.id] as string[]) || []).includes(option.text)} />
-                                        <Label htmlFor={`${question.id}-${option.id}`}>{option.text}</Label>
-                                    </div>
-                                ))}
-                            </div>
-                        )
-                    case 'text':
-                    default:
-                        return <Textarea placeholder="Your answer..." value={value as string || ''} onChange={(e) => handleAnswerChange(question.id, e.target.value, qInfo.iteration)} required className={`min-h-[100px] ${error ? 'border-destructive' : ''}`} />
-                }
-            })()}
-            {error && <p className="text-sm text-destructive mt-2">{error.message}</p>}
-          </>
-      )
-  }
-
   return (
     <div className="space-y-6">
        <Button onClick={onBack} variant="ghost" className="mb-4">
@@ -349,63 +212,33 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
           <CardTitle className="text-center text-2xl font-bold">{survey.title}</CardTitle>
           <CardDescription className="text-center">Please answer the questions below.</CardDescription>
         </CardHeader>
-        <form onSubmit={(e) => { e.preventDefault(); handleNext(); }}>
-            <CardContent className="space-y-6 min-h-[300px]">
-              <AnimatePresence mode="wait">
-              {currentQuestionInfo ? (
-                 <motion.div
-                    key={currentQuestionInfo.path + (currentQuestionInfo.iteration || '')}
-                    initial={{ opacity: 0, x: 50 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -50 }}
-                    transition={{ duration: 0.3 }}
-                    >
-                        <div className="space-y-3">
-                            <Label htmlFor={`answer-${currentQuestionInfo.question.id}`} className="text-lg font-semibold">
-                                {currentQuestionInfo.question.text}
-                                {currentQuestionInfo.iteration && ` (Member ${currentQuestionInfo.iteration})`}
-                            </Label>
-                            {renderInput(currentQuestionInfo)}
-                        </div>
-                 </motion.div>
-              ) : (
-                <motion.div
-                    key="completion"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="flex flex-col items-center justify-center h-full text-center"
-                >
-                    <h3 className="text-xl font-bold">You've completed the survey!</h3>
-                    <p className="text-muted-foreground mt-2">Please enter your name (or submit anonymously) and click Submit.</p>
-                     <div className="space-y-3 p-4 border rounded-lg bg-background mt-6 w-full max-w-sm">
-                        <Label htmlFor="user-name">Your Name</Label>
-                        <div className="flex items-center gap-4">
-                            <div className="relative flex-1">
-                            <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
-                            <Input id="user-name" placeholder="John Doe" value={userName} onChange={(e) => setUserName(e.target.value)} disabled={isAnonymous} className="pl-9" required={!isAnonymous}/>
-                            </div>
-                        </div>
-                        <div className="flex items-center space-x-2 pt-2">
-                            <Checkbox id="anonymous" checked={isAnonymous} onCheckedChange={(checked) => setIsAnonymous(!!checked)} />
-                            <Label htmlFor="anonymous" className="flex items-center gap-2 text-sm text-muted-foreground"><VenetianMask className="h-4 w-4" />Submit Anonymously</Label>
-                        </div>
+        <form onSubmit={handleSubmit}>
+            <CardContent className="space-y-6">
+              {survey.questions.map((q, i) => renderQuestion(q, i))}
+              
+              <Separator />
+
+              <div className="space-y-3 p-4 border rounded-lg bg-background mt-6 w-full">
+                <h3 className="text-lg font-semibold">Your Information</h3>
+                <Label htmlFor="user-name">Your Name</Label>
+                <div className="flex items-center gap-4">
+                    <div className="relative flex-1">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
+                    <Input id="user-name" placeholder="John Doe" value={userName} onChange={(e) => setUserName(e.target.value)} disabled={isAnonymous} className="pl-9" required={!isAnonymous}/>
                     </div>
-                </motion.div>
-              )}
-              </AnimatePresence>
+                </div>
+                <div className="flex items-center space-x-2 pt-2">
+                    <Checkbox id="anonymous" checked={isAnonymous} onCheckedChange={(checked) => setIsAnonymous(!!checked)} />
+                    <Label htmlFor="anonymous" className="flex items-center gap-2 text-sm text-muted-foreground"><VenetianMask className="h-4 w-4" />Submit Anonymously</Label>
+                </div>
+            </div>
+
             </CardContent>
-            <CardFooter className="flex flex-col sm:flex-row gap-2">
-                {currentQuestionInfo ? (
-                    <Button type="button" className="w-full" size="lg" onClick={handleNext} disabled={isNavigating}>
-                        {isNavigating ? <Loader2 className="mr-2 animate-spin" /> : 'Next'} 
-                        {!isNavigating && <ChevronsRight className="ml-2 h-4 w-4"/>}
-                    </Button>
-                ) : (
-                    <Button type="button" onClick={handleSubmit} className="w-full" size="lg" disabled={isSubmitting}>
-                        {isSubmitting ? <Loader2 className="mr-2 animate-spin" /> : <Send className="mr-2"/>}
-                        {isSubmitting ? 'Submitting...' : 'Submit Survey'}
-                    </Button>
-                )}
+            <CardFooter>
+                 <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
+                    {isSubmitting ? <Loader2 className="mr-2 animate-spin" /> : <Send className="mr-2"/>}
+                    {isSubmitting ? 'Submitting...' : 'Submit Survey'}
+                </Button>
             </CardFooter>
         </form>
       </Card>

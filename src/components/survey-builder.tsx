@@ -38,12 +38,12 @@ const QuestionBuilderItem: React.FC<{
     index: number;
     allQuestions: SurveyQuestion[];
     level?: number;
-    onUpdate: (id: string, field: keyof SurveyQuestion, value: any, parentId?: string) => void;
-    onDelete: (id: string, parentId?: string) => void;
-    onTypeChange: (id: string, type: QuestionType, parentId?: string) => void;
-    onOptionChange: (qId: string, optId: string, text: string, parentId?: string) => void;
-    addOption: (qId: string, parentId?: string) => void;
-    removeOption: (qId: string, optId: string, parentId?: string) => void;
+    onUpdate: (id: string, field: keyof SurveyQuestion, value: any) => void;
+    onDelete: (id: string) => void;
+    onTypeChange: (id: string, type: QuestionType) => void;
+    onOptionChange: (qId: string, optId: string, text: string) => void;
+    addOption: (qId: string) => void;
+    removeOption: (qId: string, optId: string) => void;
 }> = ({ question, index, allQuestions, level = 0, onUpdate, onDelete, onTypeChange, onOptionChange, addOption, removeOption }) => {
     const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
 
@@ -55,9 +55,6 @@ const QuestionBuilderItem: React.FC<{
         'multiple-choice-multi': <ListChecks className="h-4 w-4" />,
     };
 
-    const parentId = question.parent_question_id || undefined;
-
-    // This function now correctly searches the entire tree
     const findQuestionByIdRecursive = (id: string, searchQuestions: SurveyQuestion[]): SurveyQuestion | null => {
         for (const q of searchQuestions) {
             if (q.id === id) return q;
@@ -105,7 +102,7 @@ const QuestionBuilderItem: React.FC<{
                     {editingQuestionId === question.id ? (
                         <Textarea
                           value={question.text}
-                          onChange={(e) => onUpdate(question.id, 'text', e.target.value, parentId)}
+                          onChange={(e) => onUpdate(question.id, 'text', e.target.value)}
                           onBlur={() => setEditingQuestionId(null)}
                           autoFocus
                           className="flex-1 bg-transparent border-primary/50"
@@ -122,15 +119,15 @@ const QuestionBuilderItem: React.FC<{
                                   <GripVertical className="h-4 w-4 text-muted-foreground"/>
                                   <Input 
                                     value={option.text}
-                                    onChange={(e) => onOptionChange(question.id, option.id, e.target.value, parentId)}
+                                    onChange={(e) => onOptionChange(question.id, option.id, e.target.value)}
                                     className="flex-1"
                                   />
-                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeOption(question.id, option.id, parentId)}>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeOption(question.id, option.id)}>
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </div>
                             ))}
-                            <Button variant="outline" size="sm" onClick={() => addOption(question.id, parentId)}>
+                            <Button variant="outline" size="sm" onClick={() => addOption(question.id)}>
                                 <PlusCircle className="mr-2 h-4 w-4" />
                                 Add Option
                             </Button>
@@ -146,7 +143,7 @@ const QuestionBuilderItem: React.FC<{
                                 id={`expected-answers-${question.id}`}
                                 placeholder="e.g., Delhi, Mumbai, Kolkata"
                                 value={question.expected_answers || ''}
-                                onChange={(e) => onUpdate(question.id, 'expected_answers', e.target.value, parentId)}
+                                onChange={(e) => onUpdate(question.id, 'expected_answers', e.target.value)}
                                 className="text-sm"
                             />
                         </div>
@@ -161,7 +158,7 @@ const QuestionBuilderItem: React.FC<{
                                 type="number"
                                 placeholder="Min"
                                 value={question.min_range ?? ''}
-                                onChange={(e) => onUpdate(question.id, 'min_range', e.target.valueAsNumber || undefined, parentId)}
+                                onChange={(e) => onUpdate(question.id, 'min_range', e.target.valueAsNumber || undefined)}
                                 className="text-sm w-24"
                             />
                              <span className="text-muted-foreground">-</span>
@@ -170,14 +167,14 @@ const QuestionBuilderItem: React.FC<{
                                 type="number"
                                 placeholder="Max"
                                 value={question.max_range ?? ''}
-                                onChange={(e) => onUpdate(question.id, 'max_range', e.target.valueAsNumber || undefined, parentId)}
+                                onChange={(e) => onUpdate(question.id, 'max_range', e.target.valueAsNumber || undefined)}
                                 className="text-sm w-24"
                             />
                         </div>
                      )}
                   </div>
                   <div className="flex items-center gap-2">
-                     <Select value={question.type} onValueChange={(v) => onTypeChange(question.id, v as QuestionType, parentId)}>
+                     <Select value={question.type} onValueChange={(v) => onTypeChange(question.id, v as QuestionType)}>
                         <SelectTrigger className="w-[220px]">
                            <div className="flex items-center gap-2">
                             {questionTypeIcons[question.type]}
@@ -196,7 +193,7 @@ const QuestionBuilderItem: React.FC<{
                         variant="ghost"
                         size="icon"
                         className="text-muted-foreground h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => onDelete(question.id, parentId)}
+                        onClick={() => onDelete(question.id)}
                         aria-label="Delete question"
                     >
                         <Trash2 className="h-4 w-4" />
@@ -388,12 +385,12 @@ export default function SurveyBuilder({
                 question={question}
                 index={index}
                 allQuestions={questions}
-                onUpdate={handleUpdateQuestion as any}
+                onUpdate={handleUpdateQuestion}
                 onDelete={handleDelete}
                 onTypeChange={handleQuestionTypeChange}
-                onOptionChange={handleOptionChange as any}
-                addOption={addOption as any}
-                removeOption={removeOption as any}
+                onOptionChange={handleOptionChange}
+                addOption={addOption}
+                removeOption={removeOption}
              />
           ))}
         </AnimatePresence>
