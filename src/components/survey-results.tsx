@@ -16,14 +16,14 @@ import {
   ChartLegend,
   ChartLegendContent,
 } from "@/components/ui/chart"
-import { Bar, BarChart, Pie, ResponsiveContainer, Cell, PieLabel } from "recharts"
+import { Bar, BarChart, Pie, ResponsiveContainer, Cell, XAxis, YAxis } from "recharts"
 
 type SurveyResultsProps = {
   survey: SavedSurvey;
   onBack: () => void;
 };
 
-const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8", "#82ca9d"];
+const COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
 
 export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
   const [results, setResults] = useState<SurveyResult[]>([]);
@@ -53,40 +53,63 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         answers: [],
       };
       acc[result.submission_id].answers.push({
+        questionId: result.question_id,
         questionText: result.question_text,
         answerValue: result.answer_value,
       });
       return acc;
-    }, {} as Record<string, { id: string; userName: string; createdAt: string; answers: { questionText: string; answerValue: string }[] }>);
+    }, {} as Record<string, { id: string; userName: string; createdAt: string; answers: { questionId: string, questionText: string; answerValue: string }[] }>);
     
+    // Sort answers based on original question order
+    Object.values(grouped).forEach(submission => {
+        submission.answers.sort((a, b) => {
+            const qA_index = survey.questions.findIndex(q => q.id === a.questionId);
+            const qB_index = survey.questions.findIndex(q => q.id === b.questionId);
+            return qA_index - qB_index;
+        });
+    });
+
     return Object.values(grouped);
-  }, [results]);
+  }, [results, survey.questions]);
 
   const aggregatedResults = useMemo(() => {
     return survey.questions.map(question => {
         const questionResults = results.filter(r => r.question_id === question.id);
         
-        let data: { name: string; value: number }[] = [];
-        let total = 0;
+        let data: { name: string; value: number, fill: string }[] = [];
 
         if (question.type === 'yes-no' || question.type === 'multiple-choice') {
             const counts: Record<string, number> = {};
+            
+            // Pre-fill counts for all possible options to ensure consistent color mapping
+            const allOptions = question.type === 'yes-no' ? ['yes', 'no'] : question.options?.map(o => o.text) || [];
+            allOptions.forEach(opt => counts[opt] = 0);
+
+
             questionResults.forEach(r => {
                 try {
-                    const answers = question.type === 'multiple-choice' ? JSON.parse(r.answer_value) : [r.answer_value];
+                    const answers = question.type === 'multiple-choice' && r.answer_value.startsWith('[') ? JSON.parse(r.answer_value) : [r.answer_value];
                     (answers as string[]).forEach(ans => {
-                        counts[ans] = (counts[ans] || 0) + 1;
+                        if (counts[ans] !== undefined) {
+                            counts[ans]++;
+                        } else {
+                            // handle cases where an answer might not be in the original options (edge case)
+                            counts[ans] = 1;
+                        }
                     });
                 } catch {
-                   // Handle non-JSON values for multiple-choice if any
-                   counts[r.answer_value] = (counts[r.answer_value] || 0) + 1
+                   if (counts[r.answer_value] !== undefined) {
+                       counts[r.answer_value]++;
+                   } else {
+                       counts[r.answer_value] = 1;
+                   }
                 }
             });
-            data = Object.entries(counts).map(([name, value]) => ({ name, value }));
+            data = Object.entries(counts).map(([name, value], index) => ({ name: name, value, fill: COLORS[index % COLORS.length] }));
         } else if (question.type === 'number') {
             const numbers = questionResults.map(r => Number(r.answer_value)).filter(n => !isNaN(n));
             const avg = numbers.length > 0 ? numbers.reduce((a, b) => a + b, 0) / numbers.length : 0;
-            data = [{ name: 'Average', value: parseFloat(avg.toFixed(2)) }];
+            data = [{ name: 'Average', value: parseFloat(avg.toFixed(2)), fill: COLORS[0] }];
         }
         
         return {
@@ -96,6 +119,21 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         };
     });
   }, [survey, results]);
+
+  const chartConfig = useMemo(() => {
+    const config: any = {};
+    aggregatedResults.forEach(question => {
+        if(question.data) {
+            question.data.forEach(d => {
+                config[d.name] = {
+                    label: d.name,
+                    color: d.fill
+                }
+            })
+        }
+    });
+    return config;
+  }, [aggregatedResults]);
 
 
   return (
@@ -122,28 +160,35 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
               <div>
                   <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><PieChart />Charts</h3>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                       {aggregatedResults.filter(q => q.type !== 'text').map(question => (
+                       {aggregatedResults.filter(q => q.type !== 'text' && q.data.length > 0).map(question => (
                            <Card key={question.id}>
                                <CardHeader>
                                    <CardTitle className="text-base">{question.text}</CardTitle>
                                </CardHeader>
                                <CardContent>
-                                   <ChartContainer config={{}} className="h-60">
+                                   <ChartContainer config={chartConfig} className="h-60">
                                        <ResponsiveContainer width="100%" height="100%">
                                         {question.type === 'number' ? (
-                                             <BarChart data={question.data} layout="vertical" margin={{ left: 20, right: 20 }}>
-                                                <Bar dataKey="value" fill="var(--color-primary)" radius={4} barSize={30} />
-                                                <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                                             <BarChart data={question.data} layout="vertical" margin={{ left: 10, right: 40 }}>
+                                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} />
+                                                <XAxis type="number" hide />
+                                                <Bar dataKey="value" radius={4} barSize={30}>
+                                                  {question.data.map(d => <Cell key={d.name} fill={d.fill} />)}
+                                                </Bar>
+                                                <ChartTooltip 
+                                                  cursor={false}
+                                                  content={<ChartTooltipContent hideLabel />} 
+                                                />
                                             </BarChart>
                                         ) : (
                                             <PieChart>
                                                 <Pie data={question.data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                                                    {question.data.map((entry, index) => (
-                                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                    {question.data.map((entry) => (
+                                                        <Cell key={`cell-${entry.name}`} fill={entry.fill} />
                                                     ))}
                                                 </Pie>
-                                                <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                                                <ChartLegend content={<ChartLegendContent />} />
+                                                <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
+                                                <ChartLegend content={<ChartLegendContent nameKey="name" />} />
                                             </PieChart>
                                         )}
                                        </ResponsiveContainer>
@@ -159,7 +204,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                 <Table>
                     <TableHeader>
                         <TableRow>
-                        <TableHead>User</TableHead>
+                        <TableHead className="w-1/4">User</TableHead>
                         <TableHead>Answers</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -192,4 +237,3 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     </div>
   );
 }
-
