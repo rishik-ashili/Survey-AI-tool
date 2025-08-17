@@ -35,7 +35,7 @@ type CurrentQuestionInfo = {
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [submitted, setSubmitted] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(isSubmitting);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [userName, setUserName] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [metadata, setMetadata] = useState<SubmissionMetadata>({});
@@ -395,4 +395,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   );
 }
  
+    
+
     
