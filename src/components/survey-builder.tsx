@@ -45,7 +45,8 @@ const QuestionBuilderItem: React.FC<{
     onOptionChange: (qId: string, optId: string, text: string) => void;
     addOption: (qId: string) => void;
     removeOption: (qId: string, optId: string) => void;
-}> = ({ question, index, allQuestions, level = 0, onUpdate, onDelete, onTypeChange, onOptionChange, addOption, removeOption }) => {
+    onAddSubQuestion: (questionId: string, triggerValue: string) => void;
+}> = ({ question, index, allQuestions, level = 0, onUpdate, onDelete, onTypeChange, onOptionChange, addOption, removeOption, onAddSubQuestion }) => {
     const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
 
     const questionTypeIcons: Record<QuestionType, React.ReactNode> = {
@@ -68,6 +69,40 @@ const QuestionBuilderItem: React.FC<{
     };
     
     const iterativeSourceQuestionText = question.iterative_source_question_text || (question.iterative_source_question_id ? findQuestionTextByIdRecursive(question.iterative_source_question_id, allQuestions) : '');
+
+    const hasSubQuestionForOption = (optionText: string) => {
+        return question.sub_questions?.some(sq => sq.trigger_condition_value === optionText);
+    }
+
+    const renderOptions = (options: {id: string, text: string}[]) => (
+        <div className="space-y-2 pl-4">
+            {options.map(option => (
+                <div key={option.id} className="flex items-center gap-2 group/option">
+                  <GripVertical className="h-4 w-4 text-muted-foreground"/>
+                  <Input 
+                    value={option.text}
+                    onChange={(e) => onOptionChange(question.id, option.id, e.target.value)}
+                    className="flex-1"
+                    readOnly={question.type === 'yes-no'}
+                  />
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-blue-500" onClick={() => onAddSubQuestion(question.id, option.text)} disabled={hasSubQuestionForOption(option.text)}>
+                    <GitBranch className="h-4 w-4" />
+                  </Button>
+                  {question.type !== 'yes-no' && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeOption(question.id, option.id)}>
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+            ))}
+            {question.type !== 'yes-no' && (
+                <Button variant="outline" size="sm" onClick={() => addOption(question.id)}>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Add Option
+                </Button>
+            )}
+        </div>
+    );
 
 
     return (
@@ -113,27 +148,9 @@ const QuestionBuilderItem: React.FC<{
                         {question.text}
                       </p>
                     )}
-                    {(question.type === 'multiple-choice' || question.type === 'multiple-choice-multi') && (
-                        <div className="space-y-2 pl-4">
-                            {question.options?.map(option => (
-                                <div key={option.id} className="flex items-center gap-2">
-                                  <GripVertical className="h-4 w-4 text-muted-foreground"/>
-                                  <Input 
-                                    value={option.text}
-                                    onChange={(e) => onOptionChange(question.id, option.id, e.target.value)}
-                                    className="flex-1"
-                                  />
-                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeOption(question.id, option.id)}>
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                            ))}
-                            <Button variant="outline" size="sm" onClick={() => addOption(question.id)}>
-                                <PlusCircle className="mr-2 h-4 w-4" />
-                                Add Option
-                            </Button>
-                        </div>
-                    )}
+                    {(question.type === 'multiple-choice' || question.type === 'multiple-choice-multi') && renderOptions(question.options || [])}
+                    {question.type === 'yes-no' && renderOptions([{id: 'yes-opt', text: 'Yes'}, {id: 'no-opt', text: 'No'}])}
+
                      {question.type === 'text' && (
                         <div className="space-y-2 pl-4">
                             <Label htmlFor={`expected-answers-${question.id}`} className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -219,6 +236,7 @@ const QuestionBuilderItem: React.FC<{
                             onOptionChange={onOptionChange}
                             addOption={addOption}
                             removeOption={removeOption}
+                            onAddSubQuestion={onAddSubQuestion}
                          />
                     ))}
                 </div>
@@ -326,6 +344,32 @@ export default function SurveyBuilder({
     });
     setQuestions(prev => updateQuestionPropertyRecursive(prev, qId, updateFn));
   }
+  
+  const handleAddSubQuestion = (questionId: string, triggerValue: string) => {
+      const newSubQuestion: SurveyQuestion = {
+        id: `q-${Date.now()}`,
+        text: "New follow-up question",
+        type: 'text',
+        parent_question_id: questionId,
+        trigger_condition_value: triggerValue,
+        sub_questions: []
+      };
+      
+      const addSubQuestionRecursive = (questions: SurveyQuestion[]): SurveyQuestion[] => {
+        return questions.map(q => {
+            if (q.id === questionId) {
+                const updatedSubQuestions = [...(q.sub_questions || []), newSubQuestion];
+                return {...q, sub_questions: updatedSubQuestions};
+            }
+            if (q.sub_questions && q.sub_questions.length > 0) {
+                return {...q, sub_questions: addSubQuestionRecursive(q.sub_questions)}
+            }
+            return q;
+        });
+      };
+      
+      setQuestions(prev => addSubQuestionRecursive(prev));
+  }
 
   const handleExport = () => {
     exportToCsv(questions, title);
@@ -393,6 +437,7 @@ export default function SurveyBuilder({
                 onOptionChange={handleOptionChange}
                 addOption={addOption}
                 removeOption={removeOption}
+                onAddSubQuestion={handleAddSubQuestion}
              />
           ))}
         </AnimatePresence>
