@@ -1,4 +1,3 @@
-
 SQl 
 
 -- surveys table
@@ -9,7 +8,7 @@ CREATE TABLE surveys (
 );
 
 -- questions table
-CREATE TYPE question_type AS ENUM ('text', 'number', 'yes-no', 'multiple-choice');
+CREATE TYPE question_type AS ENUM ('text', 'number', 'yes-no');
 CREATE TABLE questions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   survey_id UUID NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
@@ -18,15 +17,6 @@ CREATE TABLE questions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_questions_survey_id ON questions(survey_id);
-
--- question_options table
-CREATE TABLE question_options (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-  text TEXT NOT NULL
-);
-CREATE INDEX idx_question_options_question_id ON question_options(question_id);
-
 
 -- submissions table
 CREATE TABLE submissions (
@@ -54,16 +44,12 @@ ALTER TABLE surveys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE answers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE question_options ENABLE ROW LEVEL SECURITY;
 
 -- Create policies for public access (or restrict as needed)
 CREATE POLICY "Public surveys are viewable by everyone." ON surveys
   FOR SELECT USING (true);
 
 CREATE POLICY "Public questions are viewable by everyone." ON questions
-  FOR SELECT USING (true);
-  
-CREATE POLICY "Public question options are viewable by everyone." ON question_options
   FOR SELECT USING (true);
 
 CREATE POLICY "Anyone can create submissions." ON submissions
@@ -80,24 +66,49 @@ CREATE POLICY "Anyone can create surveys." ON surveys
 -- Allow anyone to insert into the questions table
 CREATE POLICY "Anyone can create questions." ON questions
   FOR INSERT WITH CHECK (true);
-  
-CREATE POLICY "Anyone can create question options." ON question_options
-  FOR INSERT WITH CHECK (true);
 
 -- Allow anyone to create submissions.
--- CREATE POLICY "Anyone can create submissions." ON submissions
---   FOR INSERT WITH CHECK (true);
+CREATE POLICY "Anyone can create submissions." ON submissions
+  FOR INSERT WITH CHECK (true);
 
 -- Allow anyone to create answers.
--- CREATE POLICY "Anyone can create answers." ON answers
---   FOR INSERT WITH CHECK (true);
+CREATE POLICY "Anyone can create answers." ON answers
+  FOR INSERT WITH CHECK (true);
 
 -- Allow users to view their own submissions.
 CREATE POLICY "Users can view their own submissions." ON submissions
   FOR SELECT USING (true);
 
 
--- View for survey results
+
+
+
+
+
+
+
+-- Add 'multiple-choice' to the question_type enum
+ALTER TYPE question_type ADD VALUE 'multiple-choice';
+
+-- Create table to store options for multiple-choice questions
+CREATE TABLE question_options (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+  text TEXT NOT NULL
+);
+CREATE INDEX idx_question_options_question_id ON question_options(question_id);
+
+-- Enable RLS for the new table
+ALTER TABLE question_options ENABLE ROW LEVEL SECURITY;
+
+-- Add policies for the new table
+CREATE POLICY "Public question options are viewable by everyone." ON question_options
+  FOR SELECT USING (true);
+
+CREATE POLICY "Anyone can create question options." ON question_options
+  FOR INSERT WITH CHECK (true);
+
+-- Add a new table to view survey results
 CREATE VIEW survey_results AS
 SELECT
     s.id AS survey_id,
