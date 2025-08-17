@@ -125,6 +125,13 @@ export async function submitSurvey(
         console.error("Error creating submission:", submissionError);
         return { error: submissionError.message };
     }
+    
+    if (!submissionData) {
+        const errorMessage = "Failed to create submission or retrieve submission ID.";
+        console.error(errorMessage);
+        return { error: errorMessage };
+    }
+
 
     const answersToInsert = Object.entries(answers).map(([questionId, value]) => ({
         submission_id: submissionData.id,
