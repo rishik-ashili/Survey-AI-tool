@@ -79,6 +79,20 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
               return { question: triggeredSubQuestion, path: `${currentInfo.path}.${subQuestionIndex}` };
           }
       }
+      
+      const getQuestionFromPath = (path: string): SurveyQuestion | undefined => {
+        const pathParts = path.split('.').map(Number);
+        let currentLevel = survey.questions;
+        let question: SurveyQuestion | undefined;
+
+        for (const index of pathParts) {
+            if (index < 0 || index >= currentLevel.length) return undefined;
+            question = currentLevel[index];
+            currentLevel = question?.sub_questions || [];
+        }
+        return question;
+    };
+
 
       // 2. Check for iteration
       const nextIterationQuestion = [...questionMap.values()].find(q => q.is_iterative && q.iterative_source_question_id === currentQuestion.id);
@@ -89,31 +103,32 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
 
 
       // 3. Move to next sibling or parent's sibling
-      const pathParts = currentInfo.path.split('.').map(part => isNaN(Number(part)) ? part : Number(part));
-      
-      let currentLevelQuestions = survey.questions;
-      let parentPath = '';
+      let currentPath = currentInfo.path;
+      // This loop will continue until we find a next question or exhaust all possibilities.
+      while (currentPath.includes('.')) {
+          const pathParts = currentPath.split('.').map(Number);
+          const lastIndex = pathParts.pop()!;
+          const parentPath = pathParts.join('.');
 
-
-      for (let i = 0; i < pathParts.length - 1; i++) {
-        const part = pathParts[i];
-        if (typeof part === 'number') {
-            const parent = currentLevelQuestions[part];
-            if (parent) {
-                currentLevelQuestions = parent?.sub_questions || [];
-                parentPath = parentPath ? `${parentPath}.${part}` : `${part}`;
-            }
-        }
+          const parentQuestion = getQuestionFromPath(parentPath);
+          const siblings = parentQuestion?.sub_questions || survey.questions;
+          
+          if (lastIndex + 1 < siblings.length) {
+              const nextSibling = siblings[lastIndex + 1];
+              return { question: nextSibling, path: `${parentPath}.${lastIndex + 1}` };
+          }
+          // If no next sibling, go up one level and repeat the process.
+          currentPath = parentPath;
       }
       
-      const currentIndex = pathParts[pathParts.length - 1];
-      if (typeof currentIndex === 'number' && currentIndex + 1 < currentLevelQuestions.length) {
-          const nextSibling = currentLevelQuestions[currentIndex + 1];
-          pathParts[pathParts.length - 1]++;
-          return { question: nextSibling, path: pathParts.join('.') };
+      // Handle top-level questions
+      const topLevelIndex = Number(currentPath);
+      if (topLevelIndex + 1 < survey.questions.length) {
+          const nextQuestion = survey.questions[topLevelIndex + 1];
+          return { question: nextQuestion, path: `${topLevelIndex + 1}` };
       }
 
-      // If no next sibling, we're done with this branch, return null to signify moving up.
+      // If no next question is found at any level, we're at the end.
       return null;
   }
   
@@ -395,6 +410,8 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   );
 }
  
+    
+
     
 
     
