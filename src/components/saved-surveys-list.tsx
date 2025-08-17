@@ -1,8 +1,9 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { PlayCircle, Trash2, FileText, ChevronDown, Loader2 } from 'lucide-react';
+import { PlayCircle, Trash2, FileText, ChevronDown, Loader2, BarChart2 } from 'lucide-react';
 import { getSavedSurveys, deleteSurvey } from '@/app/actions';
 import type { SavedSurvey } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -27,12 +28,14 @@ import {
 import AttemptSurvey from '@/components/attempt-survey';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
+import SurveyResults from './survey-results';
 
 
 export default function SavedSurveysList() {
   const [surveys, setSurveys] = useState<SavedSurvey[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [attemptingSurvey, setAttemptingSurvey] = useState<SavedSurvey | null>(null);
+  const [viewingResults, setViewingResults] = useState<SavedSurvey | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -78,13 +81,18 @@ export default function SavedSurveysList() {
     }} />;
   }
 
+  if (viewingResults) {
+    return <SurveyResults survey={viewingResults} onBack={() => setViewingResults(null)} />;
+  }
+
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Saved Surveys</h2>
           <p className="text-muted-foreground">
-            Here are the surveys you've saved. You can attempt or delete them.
+            Here are the surveys you've saved. You can attempt them or view their results.
           </p>
         </div>
          <Button onClick={fetchSurveys} variant="outline" size="sm" disabled={isLoading}>
@@ -122,6 +130,10 @@ export default function SavedSurveysList() {
                      <Button variant="ghost" size="icon" onClick={() => setAttemptingSurvey(survey)}>
                         <PlayCircle />
                         <span className="sr-only">Attempt Survey</span>
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => setViewingResults(survey)}>
+                        <BarChart2 />
+                        <span className="sr-only">View Results</span>
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>

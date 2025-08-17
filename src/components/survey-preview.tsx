@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { SurveyQuestion } from "@/types";
@@ -6,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
+import { Checkbox } from "./ui/checkbox";
 
 type SurveyPreviewProps = {
   title: string;
@@ -29,6 +31,17 @@ export default function SurveyPreview({ title, questions }: SurveyPreviewProps) 
                 <RadioGroupItem value="no" id={`preview-no-${question.id}`} disabled />
                 <Label htmlFor={`preview-no-${question.id}`}>No</Label>
               </div>
+          </div>
+        )
+      case 'multiple-choice':
+        return (
+          <div className="space-y-2">
+            {question.options?.map(option => (
+              <div key={option.id} className="flex items-center space-x-2">
+                <Checkbox id={`preview-mc-${question.id}-${option.id}`} disabled />
+                <Label htmlFor={`preview-mc-${question.id}-${option.id}`}>{option.text}</Label>
+              </div>
+            ))}
           </div>
         )
       case 'text':

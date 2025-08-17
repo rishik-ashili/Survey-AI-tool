@@ -1,10 +1,11 @@
+
 "use client";
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, Trash2, Save, PlusCircle, Loader2, Type, Hash, Binary } from "lucide-react";
+import { Download, Trash2, Save, PlusCircle, Loader2, Type, Hash, Binary, List, GripVertical } from "lucide-react";
 
-import type { SurveyQuestion, QuestionType } from "@/types";
+import type { SurveyQuestion, QuestionType, QuestionOption } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { exportToCsv } from "@/lib/csv";
@@ -17,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "./ui/textarea";
+import { Input } from "./ui/input";
 import { saveSurvey } from "@/app/actions";
 
 
@@ -50,8 +52,30 @@ export default function SurveyBuilder({
   };
   
   const handleQuestionTypeChange = (id: string, type: QuestionType) => {
-    setQuestions(prev => prev.map(q => q.id === id ? {...q, type} : q));
+    setQuestions(prev => prev.map(q => q.id === id ? {...q, type: type, options: type === 'multiple-choice' ? (q.options || [{id: `opt-${Date.now()}`, text: 'Option 1'}]) : undefined} : q));
   }
+  
+  const handleOptionChange = (qId: string, optId: string, text: string) => {
+    setQuestions(prev => prev.map(q => q.id === qId ? {
+      ...q,
+      options: q.options?.map(opt => opt.id === optId ? {...opt, text} : opt)
+    } : q));
+  }
+  
+  const addOption = (qId: string) => {
+     setQuestions(prev => prev.map(q => q.id === qId ? {
+      ...q,
+      options: [...(q.options || []), {id: `opt-${Date.now()}`, text: `Option ${ (q.options?.length || 0) + 1}`}]
+    } : q));
+  }
+
+  const removeOption = (qId: string, optId: string) => {
+    setQuestions(prev => prev.map(q => q.id === qId ? {
+      ...q,
+      options: q.options?.filter(opt => opt.id !== optId)
+    } : q));
+  }
+
 
   const handleExport = () => {
     exportToCsv(questions, title);
@@ -91,6 +115,7 @@ export default function SurveyBuilder({
     'text': <Type className="h-4 w-4" />,
     'number': <Hash className="h-4 w-4" />,
     'yes-no': <Binary className="h-4 w-4" />,
+    'multiple-choice': <List className="h-4 w-4" />,
   }
 
   return (
@@ -134,22 +159,45 @@ export default function SurveyBuilder({
                   <div className="flex-shrink-0 text-primary font-bold text-lg mt-0.5">
                     {index + 1}
                   </div>
-                  {editingQuestionId === question.id ? (
-                      <Textarea
-                        value={question.text}
-                        onChange={(e) => handleUpdateQuestionText(question.id, e.target.value)}
-                        onBlur={() => setEditingQuestionId(null)}
-                        autoFocus
-                        className="flex-1 bg-transparent border-primary/50"
-                      />
-                  ) : (
-                    <p className="flex-1 text-card-foreground break-words cursor-pointer" onClick={() => setEditingQuestionId(question.id)}>
-                      {question.text}
-                    </p>
-                  )}
+                  <div className="flex-1 space-y-3">
+                    {editingQuestionId === question.id ? (
+                        <Textarea
+                          value={question.text}
+                          onChange={(e) => handleUpdateQuestionText(question.id, e.target.value)}
+                          onBlur={() => setEditingQuestionId(null)}
+                          autoFocus
+                          className="flex-1 bg-transparent border-primary/50"
+                        />
+                    ) : (
+                      <p className="flex-1 text-card-foreground break-words cursor-pointer" onClick={() => setEditingQuestionId(question.id)}>
+                        {question.text}
+                      </p>
+                    )}
+                    {question.type === 'multiple-choice' && (
+                        <div className="space-y-2 pl-4">
+                            {question.options?.map(option => (
+                                <div key={option.id} className="flex items-center gap-2">
+                                  <GripVertical className="h-4 w-4 text-muted-foreground"/>
+                                  <Input 
+                                    value={option.text}
+                                    onChange={(e) => handleOptionChange(question.id, option.id, e.target.value)}
+                                    className="flex-1"
+                                  />
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeOption(question.id, option.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                            ))}
+                            <Button variant="outline" size="sm" onClick={() => addOption(question.id)}>
+                                <PlusCircle className="mr-2 h-4 w-4" />
+                                Add Option
+                            </Button>
+                        </div>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                      <Select value={question.type} onValueChange={(v) => handleQuestionTypeChange(question.id, v as QuestionType)}>
-                        <SelectTrigger className="w-[140px]">
+                        <SelectTrigger className="w-[180px]">
                            <div className="flex items-center gap-2">
                             {questionTypeIcons[question.type]}
                             <SelectValue placeholder="Type" />
@@ -159,6 +207,7 @@ export default function SurveyBuilder({
                             <SelectItem value="text"><div className="flex items-center gap-2"><Type /> Text</div></SelectItem>
                             <SelectItem value="number"><div className="flex items-center gap-2"><Hash /> Number</div></SelectItem>
                             <SelectItem value="yes-no"><div className="flex items-center gap-2"><Binary /> Yes/No</div></SelectItem>
+                            <SelectItem value="multiple-choice"><div className="flex items-center gap-2"><List /> Multiple Choice</div></SelectItem>
                         </SelectContent>
                     </Select>
                     <Button

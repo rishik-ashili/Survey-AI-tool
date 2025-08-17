@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -43,6 +44,7 @@ export default function Home() {
             id: `q-${Date.now()}-${i}`, // Temporary ID for client-side
             text: q.text,
             type: q.type,
+            options: q.options?.map((opt, j) => ({ id: `opt-${Date.now()}-${i}-${j}`, text: opt.text }))
           }))
         );
         toast({
@@ -83,9 +85,10 @@ export default function Home() {
 
       if (result && result.surveyQuestions.length > 0) {
         const newQuestions = result.surveyQuestions.map((q, i) => ({
-            id: `q-${Date.now()}-${i}`, // Temporary ID
+            id: `q-${Date.now()}-more-${i}`, // Temporary ID
             text: q.text,
             type: q.type,
+            options: q.options?.map((opt, j) => ({ id: `opt-${Date.now()}-more-${i}-${j}`, text: opt.text }))
         }));
 
         setQuestions(prev => [...prev, ...newQuestions]);

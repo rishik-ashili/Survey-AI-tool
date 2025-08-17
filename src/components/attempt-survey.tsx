@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -21,16 +22,25 @@ type AttemptSurveyProps = {
 };
 
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
-  const [answers, setAnswers] = useState<Record<string, string | number>>({});
+  const [answers, setAnswers] = useState<Record<string, string | number | string[]>>({});
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userName, setUserName] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
   const { toast } = useToast();
 
-  const handleAnswerChange = (questionId: string, value: string | number) => {
+  const handleAnswerChange = (questionId: string, value: string | number | string[]) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
   };
+
+  const handleMultipleChoiceChange = (questionId: string, optionText: string, isChecked: boolean) => {
+    const currentAnswers = (answers[questionId] as string[] | undefined) || [];
+    const newAnswers = isChecked
+      ? [...currentAnswers, optionText]
+      : currentAnswers.filter((ans) => ans !== optionText);
+    handleAnswerChange(questionId, newAnswers);
+  };
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,6 +121,21 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                         </div>
                     </RadioGroup>
               )
+          case 'multiple-choice':
+            return (
+                <div id={`answer-${question.id}`} className="space-y-2">
+                    {question.options?.map(option => (
+                        <div key={option.id} className="flex items-center space-x-2">
+                            <Checkbox
+                                id={`${question.id}-${option.id}`}
+                                onCheckedChange={(checked) => handleMultipleChoiceChange(question.id, option.text, !!checked)}
+                                checked={((answers[question.id] as string[]) || []).includes(option.text)}
+                            />
+                            <Label htmlFor={`${question.id}-${option.id}`}>{option.text}</Label>
+                        </div>
+                    ))}
+                </div>
+            )
           case 'text':
           default:
               return (

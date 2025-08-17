@@ -4,7 +4,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { generateSurvey, type GenerateSurveyInput, type GenerateSurveyOutput } from "@/ai/flows/generate-survey-from-prompt";
-import type { SavedSurvey, SurveyQuestion } from "@/types";
+import type { SavedSurvey, SurveyQuestion, SurveyResult } from "@/types";
 
 export async function handleGenerateSurvey(input: GenerateSurveyInput): Promise<GenerateSurveyOutput> {
   try {
@@ -28,6 +28,7 @@ export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 
     { cookies: { get: (name) => cookieStore.get(name)?.value } }
   );
 
+  // 1. Insert the survey
   const { data: surveyData, error: surveyError } = await supabase
     .from('surveys')
     .insert({ title })
@@ -39,12 +40,13 @@ export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 
     return { data: null, error: surveyError.message };
   }
 
+  // 2. Insert the questions and collect their IDs
   const questionsToInsert = questions.map(q => ({
     survey_id: surveyData.id,
     text: q.text,
     type: q.type,
   }));
-
+  
   const { data: questionsData, error: questionsError } = await supabase
     .from('questions')
     .insert(questionsToInsert)
@@ -52,13 +54,75 @@ export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 
 
   if (questionsError) {
     console.error("Error saving questions:", questionsError);
-    // Optional: roll back survey insertion
-    await supabase.from('surveys').delete().match({ id: surveyData.id });
+    await supabase.from('surveys').delete().match({ id: surveyData.id }); // Rollback
     return { data: null, error: questionsError.message };
   }
 
-  return { data: { ...surveyData, questions: questionsData }, error: null };
+  // 3. Prepare and insert question options for multiple-choice questions
+  const optionsToInsert = [];
+  for (let i = 0; i < questions.length; i++) {
+    const originalQuestion = questions[i];
+    const newQuestion = questionsData[i];
+    if (originalQuestion.type === 'multiple-choice' && originalQuestion.options) {
+      for (const option of originalQuestion.options) {
+        optionsToInsert.push({
+          question_id: newQuestion.id,
+          text: option.text,
+        });
+      }
+    }
+  }
+
+  if (optionsToInsert.length > 0) {
+    const { error: optionsError } = await supabase
+      .from('question_options')
+      .insert(optionsToInsert);
+
+    if (optionsError) {
+      console.error("Error saving question options:", optionsError);
+      await supabase.from('surveys').delete().match({ id: surveyData.id }); // Rollback
+      return { data: null, error: optionsError.message };
+    }
+  }
+
+  // Fetch the full survey data back with questions and options
+   const { data: fullSurveyData, error: fetchError } = await getSurveyById(surveyData.id);
+   if (fetchError) {
+       return { data: null, error: fetchError };
+   }
+
+  return { data: fullSurveyData, error: null };
 }
+
+
+export async function getSurveyById(surveyId: string): Promise<{ data: SavedSurvey | null; error: string | null }> {
+    const cookieStore = cookies()
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get: (name) => cookieStore.get(name)?.value } }
+    );
+
+    const { data, error } = await supabase
+        .from('surveys')
+        .select(`
+            *,
+            questions (
+                *,
+                options:question_options(*)
+            )
+        `)
+        .eq('id', surveyId)
+        .single();
+    
+    if (error) {
+        console.error("Error fetching survey by id:", error);
+        return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+}
+
 
 export async function getSavedSurveys(): Promise<{data: SavedSurvey[] | null, error: string | null}> {
     const cookieStore = cookies()
@@ -73,7 +137,8 @@ export async function getSavedSurveys(): Promise<{data: SavedSurvey[] | null, er
         .select(`
             *,
             questions (
-                *
+                *,
+                options:question_options(*)
             )
         `)
         .order('created_at', { ascending: false });
@@ -105,7 +170,7 @@ export async function deleteSurvey(id: string): Promise<{error: string | null}> 
 
 export async function submitSurvey(
     surveyId: string,
-    answers: Record<string, string | number>,
+    answers: Record<string, string | number | string[]>,
     userName?: string
 ): Promise<{ error: string | null }> {
     const cookieStore = cookies()
@@ -136,7 +201,7 @@ export async function submitSurvey(
     const answersToInsert = Object.entries(answers).map(([questionId, value]) => ({
         submission_id: submissionData.id,
         question_id: questionId,
-        value: String(value),
+        value: Array.isArray(value) ? JSON.stringify(value) : String(value),
     }));
 
     const { error: answersError } = await supabase
@@ -149,4 +214,26 @@ export async function submitSurvey(
     }
 
     return { error: null };
+}
+
+export async function getSurveyResults(surveyId: string): Promise<{data: SurveyResult[] | null, error: string | null}> {
+    const cookieStore = cookies()
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get: (name) => cookieStore.get(name)?.value } }
+    );
+
+    const { data, error } = await supabase
+        .from('survey_results')
+        .select('*')
+        .eq('survey_id', surveyId)
+        .order('submission_created_at', { ascending: false });
+
+    if (error) {
+        console.error("Error fetching survey results:", error);
+        return { data: null, error: error.message };
+    }
+    
+    return { data, error: null };
 }
