@@ -147,7 +147,7 @@ export default function SavedSurveysList() {
                           <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                           <AlertDialogDescription>
                             This action cannot be undone. This will permanently delete this
-                            survey.
+                            survey and all of its responses.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>

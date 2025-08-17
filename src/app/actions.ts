@@ -215,6 +215,8 @@ export async function submitSurvey(
 
     if (answersError) {
         console.error("Error saving answers:", answersError);
+        // Rollback the submission if answers fail to save
+        await supabase.from('submissions').delete().match({ id: submissionData.id });
         return { error: answersError.message };
     }
 
