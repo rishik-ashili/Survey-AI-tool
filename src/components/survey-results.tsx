@@ -7,13 +7,13 @@ import { getSurveyResults } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ArrowLeft, Loader2, BarChartHorizontalBig, User, ChevronDown, PieChart, LineChart } from 'lucide-react';
+import { ArrowLeft, Loader2, User, ChevronDown, PieChart, LineChart } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Pie, Cell, Line } from "recharts"
+import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Pie, Cell, Line } from "recharts"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { format } from 'date-fns';
 
@@ -130,7 +130,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
             })
         }
     });
-     config.value = { label: 'Value' };
+     config.value = { label: 'Value', color: "hsl(var(--chart-1))" };
     return config;
   }, [aggregatedResults]);
 
@@ -146,7 +146,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                 <ChartContainer config={chartConfig} className="min-h-60 w-full aspect-square">
                     <ResponsiveContainer width="100%" height={300}>
                          <PieChart>
-                            <Tooltip content={<ChartTooltipContent nameKey="name" />} />
+                            <Tooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
                             <Pie data={question.data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
                                {question.data.map((entry, index) => (
                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -200,7 +200,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
           ) : (
             <div className="space-y-8">
               <div>
-                  <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><BarChartHorizontalBig />Charts</h3>
+                  <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">Charts</h3>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                        {aggregatedResults.filter(q => q.type !== 'text').map(question => (
                            <Card key={question.id}>
@@ -254,3 +254,5 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     </div>
   );
 }
+
+    
