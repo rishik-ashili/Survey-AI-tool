@@ -324,7 +324,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                 </li>
                               ))}
                             </ul>
-                            {sub.personalizedAnswers.length > 0 && (
+                            {sub.personalizedAnswers && sub.personalizedAnswers.length > 0 && (
                                 <>
                                  <Separator className="my-4" />
                                  <div className="space-y-4">
@@ -356,4 +356,3 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     </div>
   );
 }
-
