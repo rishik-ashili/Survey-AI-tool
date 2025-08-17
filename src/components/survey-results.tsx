@@ -2,22 +2,21 @@
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
-import type { SavedSurvey, SurveyResult, QuestionType } from '@/types';
+import type { SavedSurvey, SurveyResult } from '@/types';
 import { getSurveyResults } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, Loader2, BarChartHorizontalBig, PieChart, User } from 'lucide-react';
+import { ArrowLeft, Loader2, BarChartHorizontalBig, User, ChevronDown } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
 } from "@/components/ui/chart"
-import { Bar, BarChart, Pie, ResponsiveContainer, Cell, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
-import { Badge } from './ui/badge';
+import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { format } from 'date-fns';
+
 
 type SurveyResultsProps = {
   survey: SavedSurvey;
@@ -62,7 +61,6 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
       return acc;
     }, {} as Record<string, { id: string; userName: string; createdAt: string; answers: { questionId: string, questionText: string; answerValue: string }[] }>);
     
-    // Sort answers based on original question order
     Object.values(grouped).forEach(submission => {
         submission.answers.sort((a, b) => {
             const qA_index = survey.questions.findIndex(q => q.id === a.questionId);
@@ -85,7 +83,6 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
             
             const allOptions = question.type === 'yes-no' ? ['yes', 'no'] : question.options?.map(o => o.text) || [];
             allOptions.forEach(opt => counts[opt] = 0);
-
 
             questionResults.forEach(r => {
                 try {
@@ -171,12 +168,12 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                    <CardTitle className="text-base">{question.text}</CardTitle>
                                </CardHeader>
                                <CardContent>
-                                   <ChartContainer config={chartConfig} className="h-60">
-                                         <ResponsiveContainer width="100%" height="100%">
-                                             <BarChart data={question.data} layout="vertical" margin={{ left: 20, right: 20, top: 20, bottom: 20 }}>
+                                   <ChartContainer config={chartConfig} className="min-h-60 w-full">
+                                         <ResponsiveContainer width="100%" height={Math.max(240, question.data.length * 40)}>
+                                             <BarChart data={question.data} layout="vertical" margin={{ left: 10, right: 20, top: 10, bottom: 10 }}>
                                                 <CartesianGrid strokeDasharray="3 3" />
-                                                <XAxis type="number" />
-                                                <YAxis dataKey="name" type="category" width={80} />
+                                                <XAxis type="number" allowDecimals={false} />
+                                                <YAxis dataKey="name" type="category" width={100} interval={0} style={{ fontSize: '0.8rem', whiteSpace: 'normal', wordWrap: 'break-word' }}/>
                                                 <Tooltip
                                                   cursor={{fill: 'hsl(var(--muted))'}}
                                                   content={<ChartTooltipContent />}
@@ -195,34 +192,31 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
 
               <div>
                 <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><User />Individual Submissions</h3>
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                        <TableHead className="w-1/4">User</TableHead>
-                        <TableHead>Answers</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {submissions.map(sub => (
-                        <TableRow key={sub.id}>
-                            <TableCell className="font-medium align-top">
-                                {sub.userName}
-                                <div className="text-xs text-muted-foreground">{new Date(sub.createdAt).toLocaleString()}</div>
-                            </TableCell>
-                            <TableCell>
-                                <ul className="space-y-2">
-                                    {sub.answers.map((ans, i) => (
-                                        <li key={i} className="text-sm">
-                                            <strong className="font-medium">{ans.questionText}</strong>
-                                            <p className="text-muted-foreground">{ans.answerValue}</p>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </TableCell>
-                        </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
+                <div className="space-y-4">
+                  {submissions.map(sub => (
+                    <Collapsible key={sub.id} className="border rounded-lg">
+                      <CollapsibleTrigger className="w-full p-4 flex justify-between items-center cursor-pointer hover:bg-muted/50 rounded-t-lg">
+                         <div className="text-left">
+                           <p className="font-medium">{sub.userName}</p>
+                           <p className="text-sm text-muted-foreground">{format(new Date(sub.createdAt), "PPP p")}</p>
+                         </div>
+                         <ChevronDown className="h-5 w-5 transition-transform [&[data-state=open]]:rotate-180" />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                          <div className="p-4 border-t">
+                            <ul className="space-y-4">
+                              {sub.answers.map((ans, i) => (
+                                <li key={i} className="text-sm">
+                                  <strong className="font-medium">{ans.questionText}</strong>
+                                  <p className="text-muted-foreground mt-1">{ans.answerValue}</p>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  ))}
+                </div>
               </div>
             </div>
           )}
