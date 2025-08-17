@@ -49,132 +49,138 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
 
   const questionMap = useMemo(() => {
     const map = new Map<string, SurveyQuestion>();
-    const traverse = (questions: SurveyQuestion[]) => {
-        questions.forEach(q => {
-            map.set(q.id, q);
+    const traverse = (questions: SurveyQuestion[], prefix: string) => {
+        questions.forEach((q, index) => {
+            const path = prefix ? `${prefix}.${index}` : `${index}`;
+            map.set(path, q);
             if (q.sub_questions) {
-                traverse(q.sub_questions);
+                traverse(q.sub_questions, path);
             }
         });
     }
-    traverse(survey.questions);
+    traverse(survey.questions, '');
     return map;
   }, [survey.questions]);
 
+
   useEffect(() => {
-    if (survey.questions.length > 0) {
-        const firstQuestion = survey.questions[0];
-        setCurrentQuestionInfo({ question: firstQuestion, path: '0' });
-    }
-  }, [survey.questions]);
+    // This effect runs once to kick off the survey
+    const startSurvey = async () => {
+      if (survey.questions.length > 0) {
+        const firstQuestionInfo = { question: survey.questions[0], path: '0' };
+        // We need to check if we should even ask the first question
+        const { shouldAsk } = await handleShouldAskQuestion({
+          question: firstQuestionInfo.question.text,
+          previousAnswers: []
+        });
+        if (shouldAsk) {
+          setCurrentQuestionInfo(firstQuestionInfo);
+        } else {
+          // This case is unlikely for the first question but handled for completeness
+          const skippedHistory: HistoryItem = { questionInfo: firstQuestionInfo, answer: '[SKIPPED_BY_AI]' };
+          const nextInfo = await getNextQuestion([skippedHistory]);
+          setCurrentQuestionInfo(nextInfo);
+        }
+      }
+    };
+    startSurvey();
+  }, [survey.questions, getNextQuestion]);
 
   const getQuestionFromPath = useCallback((path: string): SurveyQuestion | undefined => {
-    const pathParts = path.split('.').map(Number);
-    let currentLevel: SurveyQuestion[] | undefined = survey.questions;
-    let question: SurveyQuestion | undefined;
+    return questionMap.get(path);
+  }, [questionMap]);
 
-    for (const index of pathParts) {
-        if (!currentLevel || index < 0 || index >= currentLevel.length) return undefined;
-        question = currentLevel[index];
-        currentLevel = question?.sub_questions;
-    }
-    return question;
-  }, [survey.questions]);
+  const findNextQuestionPath = useCallback((path: string): string | null => {
+        const pathParts = path.split('.').map(Number);
 
-  const findNextQuestion = useCallback((currentInfo: CurrentQuestionInfo, lastAnswer: any): CurrentQuestionInfo | null => {
-      const currentQuestion = currentInfo.question;
+        // Try to find next sibling
+        const nextSiblingPath = [...pathParts.slice(0, -1), pathParts.at(-1)! + 1].join('.');
+        if (questionMap.has(nextSiblingPath)) {
+            return nextSiblingPath;
+        }
+
+        // If no sibling, go up to parent and find its next sibling
+        if (pathParts.length > 1) {
+            return findNextQuestionPath(pathParts.slice(0, -1).join('.'));
+        }
+
+        return null; // Reached end of survey
+  }, [questionMap]);
+
+
+  const getNextQuestion = useCallback(async (historyStack: HistoryItem[]): Promise<CurrentQuestionInfo | null> => {
+      if (historyStack.length === 0 && survey.questions.length > 0) {
+        return { question: survey.questions[0], path: '0' };
+      }
+      if (historyStack.length === 0) {
+        return null;
+      }
+
+      const lastHistoryItem = historyStack.at(-1)!;
+      const { questionInfo: lastQuestionInfo, answer: lastAnswer } = lastHistoryItem;
+      const lastQuestion = lastQuestionInfo.question;
 
       // 1. Check for triggered sub-questions
-      if (currentQuestion.sub_questions && currentQuestion.sub_questions.length > 0) {
-          const triggeredSubQuestion = currentQuestion.sub_questions.find(
+      if (lastQuestion.sub_questions && lastQuestion.sub_questions.length > 0) {
+          const triggeredSubQuestion = lastQuestion.sub_questions.find(
               sq => sq.trigger_condition_value === String(lastAnswer)
           );
           if (triggeredSubQuestion) {
-               const subQuestionIndex = currentQuestion.sub_questions.indexOf(triggeredSubQuestion);
-              return { question: triggeredSubQuestion, path: `${currentInfo.path}.${subQuestionIndex}` };
+              const subQuestionIndex = lastQuestion.sub_questions.indexOf(triggeredSubQuestion);
+              const nextPath = `${lastQuestionInfo.path}.${subQuestionIndex}`;
+              const nextInfo = { question: triggeredSubQuestion, path: nextPath };
+               // Check if we should ask this sub-question
+              const { shouldAsk } = await handleShouldAskQuestion({ question: nextInfo.question.text, previousAnswers: historyStack.map(h => ({ question: h.questionInfo.question.text, answer: String(h.answer) })) });
+              if (shouldAsk) return nextInfo;
+              // If not, we need to find what's next *after* this skipped sub-question
+              return getNextQuestion([...historyStack, { questionInfo: nextInfo, answer: '[SKIPPED_BY_AI]' }]);
           }
       }
-      
-      // 2. Check for starting an iteration
-      const nextIterationQuestion = [...questionMap.values()].find(q => q.is_iterative && q.iterative_source_question_id === currentQuestion.id);
-      if (nextIterationQuestion && !isNaN(Number(lastAnswer)) && Number(lastAnswer) > 0) {
-          const iterativeQuestionIndex = [...survey.questions].findIndex(q => q.id === nextIterationQuestion.id);
-          return { question: nextIterationQuestion, path: `${iterativeQuestionIndex}`, iteration: 1 };
-      }
 
-
-      // 3. Move to next sibling or parent's sibling
-      let path = currentInfo.path;
-      while (path) {
-          const pathParts = path.split('.').map(Number);
-          const lastIndex = pathParts.pop()!;
-          const parentPath = pathParts.join('.');
-
-          const parentQuestion = parentPath ? getQuestionFromPath(parentPath) : undefined;
-          const siblings = parentQuestion ? parentQuestion.sub_questions! : survey.questions;
-
-          if (lastIndex + 1 < siblings.length) {
-              const nextSibling = siblings[lastIndex + 1];
-              return { question: nextSibling, path: parentPath ? `${parentPath}.${lastIndex + 1}`: `${lastIndex + 1}` };
+       // 2. Handle iterative logic
+      // 2a. Check if we should START a new iteration
+      const questionsArray = Array.from(questionMap.values());
+      const nextIterativeQuestion = questionsArray.find(q => q.is_iterative && q.iterative_source_question_id === lastQuestion.id);
+      if (nextIterativeQuestion && !isNaN(Number(lastAnswer)) && Number(lastAnswer) > 0) {
+          const iterativeQuestionPath = [...questionMap.entries()].find(([path, q]) => q.id === nextIterativeQuestion.id)?.[0];
+          if(iterativeQuestionPath) {
+            const nextInfo = { question: nextIterativeQuestion, path: iterativeQuestionPath, iteration: 1 };
+            return nextInfo; // Always ask the first iteration
           }
-          
-          path = parentPath; // Go up one level
       }
 
-      return null;
-  }, [getQuestionFromPath, questionMap, survey.questions]);
-  
-  const getNextQuestion = useCallback(async (historyStack: HistoryItem[]): Promise<CurrentQuestionInfo | null> => {
-      if (historyStack.length === 0) return null;
-
-      const lastHistoryItem = historyStack[historyStack.length - 1];
-      const { questionInfo: lastQuestionInfo, answer: lastAnswer } = lastHistoryItem;
-    
-      let nextInfo: CurrentQuestionInfo | null = null;
-
-      // Handle iterative logic
+      // 2b. Check if we are IN an iteration
       if (lastQuestionInfo.iteration) {
-          const sourceQuestionId = lastQuestionInfo.question.iterative_source_question_id;
-          const sourceAnswerItem = history.find(h => h.questionInfo.question.id === sourceQuestionId);
+          const sourceQuestionId = lastQuestion.iterative_source_question_id;
+          const sourceAnswerItem = historyStack.find(h => h.questionInfo.question.id === sourceQuestionId);
           const totalIterations = Number(sourceAnswerItem?.answer || 0);
 
           if (lastQuestionInfo.iteration < totalIterations) {
-              // Stay on the same question, just increment iteration
-              nextInfo = { ...lastQuestionInfo, iteration: lastQuestionInfo.iteration + 1 };
-          } else {
-             // Iteration finished, find what's next after the iterative question itself
-             const iterativeQuestionInfoInHistory = history.find(h => h.questionInfo.question.id === lastQuestionInfo.question.id && h.questionInfo.iteration === totalIterations);
-             if (iterativeQuestionInfoInHistory) {
-                nextInfo = findNextQuestion(iterativeQuestionInfoInHistory.questionInfo, lastAnswer);
-             }
+              return { ...lastQuestionInfo, iteration: lastQuestionInfo.iteration + 1 };
           }
-      } else {
-          nextInfo = findNextQuestion(lastQuestionInfo, lastAnswer);
+          // Iteration finished, so we fall through to find the next question after the iterative block
       }
       
-      // If we found a potential next question, validate if we should ask it
-      if (nextInfo) {
-          const previousAnswers = history.map(h => ({
-              question: h.questionInfo.question.text,
-              answer: String(h.answer)
-          }));
-          const { shouldAsk } = await handleShouldAskQuestion({
-              question: nextInfo.question.text,
-              previousAnswers: previousAnswers
-          });
+      // 3. Find next question in sequence (sibling or parent's sibling)
+      const nextPath = findNextQuestionPath(lastQuestionInfo.path);
+      if (nextPath) {
+        const nextQuestion = getQuestionFromPath(nextPath)!;
+        const nextInfo = { question: nextQuestion, path: nextPath };
 
-          if (!shouldAsk) {
-              // If AI says skip, add a placeholder to history and recurse
-              const skippedHistoryItem: HistoryItem = { 
-                  questionInfo: nextInfo, 
-                  answer: '[SKIPPED_BY_AI]'
-              };
-              return getNextQuestion([...history, skippedHistoryItem]);
-          }
+        // Check if we should ask it
+        const { shouldAsk } = await handleShouldAskQuestion({ question: nextInfo.question.text, previousAnswers: historyStack.map(h => ({ question: h.questionInfo.question.text, answer: String(h.answer) })) });
+
+        if (shouldAsk) {
+          return nextInfo;
+        } else {
+          // If AI says skip, add a placeholder to history and recurse
+          const skippedHistoryItem: HistoryItem = { questionInfo: nextInfo, answer: '[SKIPPED_BY_AI]' };
+          return getNextQuestion([...historyStack, skippedHistoryItem]);
+        }
       }
 
-      return nextInfo;
-  }, [findNextQuestion, history]);
+      return null;
+  }, [findNextQuestionPath, getQuestionFromPath, questionMap, survey.questions]);
 
 
   const handleNext = async () => {
