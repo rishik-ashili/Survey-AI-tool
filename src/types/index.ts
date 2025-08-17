@@ -1,6 +1,10 @@
+
+export type QuestionType = 'text' | 'number' | 'yes-no';
+
 export interface SurveyQuestion {
   id: string;
   text: string;
+  type: QuestionType;
 }
 
 export interface SavedSurvey {

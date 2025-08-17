@@ -1,14 +1,22 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, Trash2, Save, PlusCircle, Loader2 } from "lucide-react";
+import { Download, Trash2, Save, PlusCircle, Loader2, Type, Hash, Binary } from "lucide-react";
 
-import type { SurveyQuestion, SavedSurvey } from "@/types";
+import type { SurveyQuestion, SavedSurvey, QuestionType } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { exportToCsv } from "@/lib/csv";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
 
 type SurveyBuilderProps = {
   title: string;
@@ -33,6 +41,10 @@ export default function SurveyBuilder({
   const handleDelete = (id: string) => {
     setQuestions((prev) => prev.filter((q) => q.id !== id));
   };
+  
+  const handleQuestionTypeChange = (id: string, type: QuestionType) => {
+    setQuestions(prev => prev.map(q => q.id === id ? {...q, type} : q));
+  }
 
   const handleExport = () => {
     exportToCsv(questions, title);
@@ -63,6 +75,12 @@ export default function SurveyBuilder({
     });
     onSaveSuccess();
   };
+  
+  const questionTypeIcons: Record<QuestionType, React.ReactNode> = {
+    'text': <Type className="h-4 w-4" />,
+    'number': <Hash className="h-4 w-4" />,
+    'yes-no': <Binary className="h-4 w-4" />,
+  }
 
   return (
     <div className="space-y-6">
@@ -105,18 +123,33 @@ export default function SurveyBuilder({
                   <div className="flex-shrink-0 text-primary font-bold text-lg mt-0.5">
                     {index + 1}
                   </div>
-                  <p className="flex-1 text-card-foreground break-words">
+                   <p className="flex-1 text-card-foreground break-words">
                     {question.text}
                   </p>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => handleDelete(question.id)}
-                    aria-label="Delete question"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-2">
+                     <Select value={question.type} onValueChange={(v) => handleQuestionTypeChange(question.id, v as QuestionType)}>
+                        <SelectTrigger className="w-[140px]">
+                           <div className="flex items-center gap-2">
+                            {questionTypeIcons[question.type]}
+                            <SelectValue placeholder="Type" />
+                           </div>
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="text"><div className="flex items-center gap-2"><Type /> Text</div></SelectItem>
+                            <SelectItem value="number"><div className="flex items-center gap-2"><Hash /> Number</div></SelectItem>
+                            <SelectItem value="yes-no"><div className="flex items-center gap-2"><Binary /> Yes/No</div></SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => handleDelete(question.id)}
+                        aria-label="Delete question"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>

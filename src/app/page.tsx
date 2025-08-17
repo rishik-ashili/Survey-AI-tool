@@ -41,6 +41,7 @@ export default function Home() {
           result.surveyQuestions.map((q, i) => ({
             id: `q-${Date.now()}-${i}`,
             text: q,
+            type: 'text',
           }))
         );
         toast({
@@ -82,6 +83,7 @@ export default function Home() {
         const newQuestions = result.surveyQuestions.map((q, i) => ({
             id: `q-${Date.now()}-${i}`,
             text: q,
+            type: 'text',
         }));
 
         setQuestions(prev => [...prev, ...newQuestions]);

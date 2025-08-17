@@ -8,8 +8,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Send } from 'lucide-react';
+import { ArrowLeft, Send, Minus, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { RadioGroup, RadioGroupItem } from './ui/radio-group';
+import { Input } from './ui/input';
 
 type AttemptSurveyProps = {
   survey: SavedSurvey;
@@ -17,11 +19,11 @@ type AttemptSurveyProps = {
 };
 
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, string | number>>({});
   const [submitted, setSubmitted] = useState(false);
   const { toast } = useToast();
 
-  const handleAnswerChange = (questionId: string, value: string) => {
+  const handleAnswerChange = (questionId: string, value: string | number) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
   };
 
@@ -42,6 +44,62 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         description: "Thank you for your feedback.",
     });
   };
+  
+  const renderInput = (question: SavedSurvey['questions'][0]) => {
+      const value = answers[question.id];
+
+      switch (question.type) {
+          case 'number':
+              return (
+                  <div className="flex items-center gap-2">
+                      <Button type="button" size="icon" variant="outline" onClick={() => handleAnswerChange(question.id, (Number(value) || 0) - 1)}>
+                          <Minus className="h-4 w-4"/>
+                      </Button>
+                      <Input
+                          id={`answer-${question.id}`}
+                          type="number"
+                          value={value || ''}
+                          onChange={(e) => handleAnswerChange(question.id, e.target.valueAsNumber)}
+                          required
+                          className="text-center"
+                      />
+                       <Button type="button" size="icon" variant="outline" onClick={() => handleAnswerChange(question.id, (Number(value) || 0) + 1)}>
+                          <Plus className="h-4 w-4"/>
+                      </Button>
+                  </div>
+              )
+          case 'yes-no':
+              return (
+                   <RadioGroup
+                        id={`answer-${question.id}`}
+                        onValueChange={(v) => handleAnswerChange(question.id, v)}
+                        value={value as string || ''}
+                        className="flex gap-4"
+                    >
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="yes" id={`yes-${question.id}`} />
+                            <Label htmlFor={`yes-${question.id}`}>Yes</Label>
+                        </div>
+                         <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="no" id={`no-${question.id}`} />
+                            <Label htmlFor={`no-${question.id}`}>No</Label>
+                        </div>
+                    </RadioGroup>
+              )
+          case 'text':
+          default:
+              return (
+                   <Textarea
+                        id={`answer-${question.id}`}
+                        placeholder="Your answer..."
+                        value={value as string || ''}
+                        onChange={(e) => handleAnswerChange(question.id, e.target.value)}
+                        required
+                        className="min-h-[100px]"
+                    />
+              )
+      }
+  }
   
   if (submitted) {
     return (
@@ -83,14 +141,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                         <Label htmlFor={`answer-${question.id}`} className="text-base">
                             {index + 1}. {question.text}
                         </Label>
-                        <Textarea
-                            id={`answer-${question.id}`}
-                            placeholder="Your answer..."
-                            value={answers[question.id] || ''}
-                            onChange={(e) => handleAnswerChange(question.id, e.target.value)}
-                            required
-                            className="min-h-[100px]"
-                        />
+                        {renderInput(question)}
                         {index < survey.questions.length - 1 && <Separator className="mt-6" />}
                         </div>
                  </motion.div>
