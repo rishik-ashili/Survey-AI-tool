@@ -33,8 +33,8 @@ const WordCloud = ({ words }: { words: { text: string; value: number }[] }) => {
     setIsClient(true);
   }, []);
 
-  if (!isClient) {
-    return null;
+  if (!isClient || !words || words.length === 0) {
+    return <div className="flex items-center justify-center h-full text-muted-foreground">No text responses yet.</div>;
   }
 
   return (
