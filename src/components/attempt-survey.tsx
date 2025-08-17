@@ -85,7 +85,11 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
 
   const getNextQuestion = useCallback(async (historyStack: HistoryItem[]): Promise<CurrentQuestionInfo | null> => {
       if (historyStack.length === 0 && survey.questions.length > 0) {
-        return { question: survey.questions[0], path: '0' };
+        const firstInfo = { question: survey.questions[0], path: '0' };
+         const { shouldAsk } = await handleShouldAskQuestion({ question: firstInfo.question.text, previousAnswers: [] });
+         if (shouldAsk) return firstInfo;
+         // If first question is skipped, start evaluation from that skipped point
+         return getNextQuestion([{ questionInfo: firstInfo, answer: '[SKIPPED_BY_AI]'}]);
       }
       if (historyStack.length === 0) {
         return null;
@@ -95,36 +99,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       const { questionInfo: lastQuestionInfo, answer: lastAnswer } = lastHistoryItem;
       const lastQuestion = lastQuestionInfo.question;
 
-      // 1. Check for triggered sub-questions
-      if (lastQuestion.sub_questions && lastQuestion.sub_questions.length > 0) {
-          const triggeredSubQuestion = lastQuestion.sub_questions.find(
-              sq => sq.trigger_condition_value === String(lastAnswer)
-          );
-          if (triggeredSubQuestion) {
-              const subQuestionIndex = lastQuestion.sub_questions.indexOf(triggeredSubQuestion);
-              const nextPath = `${lastQuestionInfo.path}.${subQuestionIndex}`;
-              const nextInfo = { question: triggeredSubQuestion, path: nextPath };
-               // Check if we should ask this sub-question
-              const { shouldAsk } = await handleShouldAskQuestion({ question: nextInfo.question.text, previousAnswers: historyStack.map(h => ({ question: h.questionInfo.question.text, answer: String(h.answer) })) });
-              if (shouldAsk) return nextInfo;
-              // If not, we need to find what's next *after* this skipped sub-question
-              return getNextQuestion([...historyStack, { questionInfo: nextInfo, answer: '[SKIPPED_BY_AI]' }]);
-          }
-      }
-
-       // 2. Handle iterative logic
-      // 2a. Check if we should START a new iteration
-      const questionsArray = Array.from(questionMap.values());
-      const nextIterativeQuestion = questionsArray.find(q => q.is_iterative && q.iterative_source_question_id === lastQuestion.id);
-      if (nextIterativeQuestion && !isNaN(Number(lastAnswer)) && Number(lastAnswer) > 0) {
-          const iterativeQuestionPath = [...questionMap.entries()].find(([path, q]) => q.id === nextIterativeQuestion.id)?.[0];
-          if(iterativeQuestionPath) {
-            const nextInfo = { question: nextIterativeQuestion, path: iterativeQuestionPath, iteration: 1 };
-            return nextInfo; // Always ask the first iteration
-          }
-      }
-
-      // 2b. Check if we are IN an iteration
+      // 1. Handle being IN an iteration
       if (lastQuestionInfo.iteration) {
           const sourceQuestionId = lastQuestion.iterative_source_question_id;
           const sourceAnswerItem = historyStack.find(h => h.questionInfo.question.id === sourceQuestionId);
@@ -136,21 +111,51 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
           // Iteration finished, so we fall through to find the next question after the iterative block
       }
       
-      // 3. Find next question in sequence (sibling or parent's sibling)
+      // 2. Check for triggered sub-questions from the last answer
+      if (lastQuestion.sub_questions && lastQuestion.sub_questions.length > 0) {
+          const triggeredSubQuestion = lastQuestion.sub_questions.find(
+              sq => String(sq.trigger_condition_value).toLowerCase() === String(lastAnswer).toLowerCase()
+          );
+          if (triggeredSubQuestion) {
+              const subQuestionIndex = lastQuestion.sub_questions.indexOf(triggeredSubQuestion);
+              const nextPath = `${lastQuestionInfo.path}.sub_questions.${subQuestionIndex}`; // Path correction
+              
+              const questionFromPath = getQuestionFromPath(nextPath.replace('.sub_questions',''));
+
+              if(questionFromPath) {
+                 const nextInfo = { question: questionFromPath, path: nextPath.replace('.sub_questions','') };
+                  const { shouldAsk } = await handleShouldAskQuestion({ question: nextInfo.question.text, previousAnswers: historyStack.map(h => ({ question: h.questionInfo.question.text, answer: String(h.answer) })) });
+                  if (shouldAsk) return nextInfo;
+                  return getNextQuestion([...historyStack, { questionInfo: nextInfo, answer: '[SKIPPED_BY_AI]' }]);
+              }
+          }
+      }
+
+       // 3. Check if we should START a new iteration based on the last answer
+      const questionsArray = Array.from(questionMap.values());
+      const nextIterativeQuestion = questionsArray.find(q => q.is_iterative && q.iterative_source_question_id === lastQuestion.id);
+      
+      if (nextIterativeQuestion && !isNaN(Number(lastAnswer)) && Number(lastAnswer) > 0) {
+          const iterativeQuestionPath = [...questionMap.entries()].find(([, q]) => q.id === nextIterativeQuestion.id)?.[0];
+          if(iterativeQuestionPath) {
+            const nextInfo = { question: nextIterativeQuestion, path: iterativeQuestionPath, iteration: 1 };
+            // Don't need to check AI here, first iteration should always run
+            return nextInfo; 
+          }
+      }
+      
+      // 4. Find next question in sequence (sibling or parent's sibling)
       const nextPath = findNextQuestionPath(lastQuestionInfo.path);
       if (nextPath) {
         const nextQuestion = getQuestionFromPath(nextPath)!;
         const nextInfo = { question: nextQuestion, path: nextPath };
 
-        // Check if we should ask it
         const { shouldAsk } = await handleShouldAskQuestion({ question: nextInfo.question.text, previousAnswers: historyStack.map(h => ({ question: h.questionInfo.question.text, answer: String(h.answer) })) });
 
         if (shouldAsk) {
           return nextInfo;
         } else {
-          // If AI says skip, add a placeholder to history and recurse
-          const skippedHistoryItem: HistoryItem = { questionInfo: nextInfo, answer: '[SKIPPED_BY_AI]' };
-          return getNextQuestion([...historyStack, skippedHistoryItem]);
+          return getNextQuestion([...historyStack, { questionInfo: nextInfo, answer: '[SKIPPED_BY_AI]' }]);
         }
       }
 
@@ -158,10 +163,8 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   }, [findNextQuestionPath, getQuestionFromPath, questionMap, survey.questions]);
 
   useEffect(() => {
-    // This effect runs once to kick off the survey
     const startSurvey = async () => {
       if (survey.questions.length > 0) {
-        // Start with an empty history stack
         const nextInfo = await getNextQuestion([]);
         setCurrentQuestionInfo(nextInfo);
       }

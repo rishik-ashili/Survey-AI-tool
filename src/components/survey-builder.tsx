@@ -57,17 +57,19 @@ const QuestionBuilderItem: React.FC<{
 
     const parentId = question.parent_question_id || undefined;
 
-    const findQuestionTextByIdRecursive = (id: string, searchQuestions: SurveyQuestion[]): string | null => {
+    // This function now correctly searches the entire tree
+    const findQuestionByIdRecursive = (id: string, searchQuestions: SurveyQuestion[]): SurveyQuestion | null => {
         for (const q of searchQuestions) {
-            if (q.id === id) return q.text;
+            if (q.id === id) return q;
             if (q.sub_questions) {
-                const foundText = findQuestionTextByIdRecursive(id, q.sub_questions);
-                if (foundText) return foundText;
+                const found = findQuestionByIdRecursive(id, q.sub_questions);
+                if (found) return found;
             }
         }
         return null;
-    }
-    const iterativeSourceQuestionText = findQuestionTextByIdRecursive(question.iterative_source_question_id || '', allQuestions);
+    };
+
+    const iterativeSourceQuestion = findQuestionByIdRecursive(question.iterative_source_question_id || '', allQuestions);
 
 
     return (
@@ -91,7 +93,7 @@ const QuestionBuilderItem: React.FC<{
                     {question.is_iterative && (
                          <div className="flex items-center gap-2 p-2 rounded-md bg-blue-50 border border-blue-200 text-sm">
                             <Repeat className="h-4 w-4 text-blue-600"/>
-                            <span className="text-blue-700">This question repeats for each item from: "{iterativeSourceQuestionText || ''}"</span>
+                            <span className="text-blue-700">This question repeats for each item from: "{iterativeSourceQuestion?.text || ''}"</span>
                          </div>
                     )}
                     {question.parent_question_id && (
@@ -338,8 +340,6 @@ export default function SurveyBuilder({
 
     setIsSaving(true);
     
-    // The questions array is now passed directly.
-    // The server action `saveSurvey` will handle mapping and removing temporary IDs.
     const { data, error } = await saveSurvey(title, questions);
 
     setIsSaving(false);
