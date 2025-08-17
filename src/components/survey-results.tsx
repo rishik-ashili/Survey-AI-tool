@@ -13,7 +13,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Pie, Cell, Line } from "recharts"
+import { BarChart as RechartsBarChart, Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Pie, Cell, Line, LineChart as RechartsLineChart, PieChart as RechartsPieChart } from "recharts"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { format } from 'date-fns';
 
@@ -145,7 +145,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
             return (
                 <ChartContainer config={chartConfig} className="min-h-60 w-full aspect-square">
                     <ResponsiveContainer width="100%" height={300}>
-                         <PieChart>
+                         <RechartsPieChart>
                             <Tooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
                             <Pie data={question.data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
                                {question.data.map((entry, index) => (
@@ -153,7 +153,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                ))}
                             </Pie>
                             <Legend />
-                         </PieChart>
+                         </RechartsPieChart>
                     </ResponsiveContainer>
                 </ChartContainer>
             );
@@ -161,14 +161,14 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
             return (
                 <ChartContainer config={chartConfig} className="min-h-60 w-full">
                     <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={question.data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <RechartsLineChart data={question.data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="name" />
                             <YAxis />
                             <Tooltip content={<ChartTooltipContent />} />
                             <Legend />
                             <Line type="monotone" dataKey="value" stroke="hsl(var(--chart-1))" activeDot={{ r: 8 }} />
-                        </LineChart>
+                        </RechartsLineChart>
                     </ResponsiveContainer>
                 </ChartContainer>
             )
