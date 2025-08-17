@@ -24,7 +24,10 @@ const GenerateSurveyInputSchema = z.object({
 export type GenerateSurveyInput = z.infer<typeof GenerateSurveyInputSchema>;
 
 const GenerateSurveyOutputSchema = z.object({
-  surveyQuestions: z.array(z.string()).describe('An array of survey questions generated from the prompt.'),
+  surveyQuestions: z.array(z.object({
+    text: z.string().describe("The text of the survey question."),
+    type: z.enum(['text', 'number', 'yes-no']).describe("The type of question. Use 'text' for open-ended answers, 'number' for numeric answers (like ratings or scales), and 'yes-no' for binary choices."),
+  })).describe('An array of survey questions generated from the prompt, each with a text and a type.'),
 });
 export type GenerateSurveyOutput = z.infer<typeof GenerateSurveyOutputSchema>;
 
@@ -36,7 +39,7 @@ const generateSurveyPrompt = ai.definePrompt({
   name: 'generateSurveyPrompt',
   input: {schema: GenerateSurveyInputSchema},
   output: {schema: GenerateSurveyOutputSchema},
-  prompt: `You are an AI-powered survey generator. Based on the user's prompt, you will generate a list of survey questions.
+  prompt: `You are an AI-powered survey generator. Based on the user's prompt, you will generate a list of survey questions. For each question, determine the most appropriate type: 'text' for open-ended answers, 'number' for scales or ratings, or 'yes-no' for binary questions. Provide a good mix of question types.
 
 Prompt: {{{prompt}}}
 
@@ -61,7 +64,7 @@ Do not generate questions that are similar to these existing questions:
 {{/each}}
 {{/if}}
 
-Ensure the survey questions are relevant to the prompt and take into account any user instructions, example inputs, or question bank content provided. Return the survey questions as an array of strings.
+Ensure the survey questions are relevant to the prompt and take into account any user instructions, example inputs, or question bank content provided. Return the survey questions as an array of objects, where each object has a "text" and a "type" field.
 `,
 });
 

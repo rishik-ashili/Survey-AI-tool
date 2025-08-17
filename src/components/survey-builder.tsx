@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Download, Trash2, Save, PlusCircle, Loader2, Type, Hash, Binary } from "lucide-react";
 
@@ -16,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "./ui/textarea";
 
 
 type SurveyBuilderProps = {
@@ -36,7 +38,12 @@ export default function SurveyBuilder({
   isLoadingMore,
 }: SurveyBuilderProps) {
   const [savedSurveys, setSavedSurveys] = useLocalStorage<SavedSurvey[]>("saved-surveys", []);
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const { toast } = useToast();
+
+  const handleUpdateQuestionText = (id: string, text: string) => {
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, text } : q));
+  }
 
   const handleDelete = (id: string) => {
     setQuestions((prev) => prev.filter((q) => q.id !== id));
@@ -123,9 +130,19 @@ export default function SurveyBuilder({
                   <div className="flex-shrink-0 text-primary font-bold text-lg mt-0.5">
                     {index + 1}
                   </div>
-                   <p className="flex-1 text-card-foreground break-words">
-                    {question.text}
-                  </p>
+                  {editingQuestionId === question.id ? (
+                      <Textarea
+                        value={question.text}
+                        onChange={(e) => handleUpdateQuestionText(question.id, e.target.value)}
+                        onBlur={() => setEditingQuestionId(null)}
+                        autoFocus
+                        className="flex-1 bg-transparent border-primary/50"
+                      />
+                  ) : (
+                    <p className="flex-1 text-card-foreground break-words cursor-pointer" onClick={() => setEditingQuestionId(question.id)}>
+                      {question.text}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2">
                      <Select value={question.type} onValueChange={(v) => handleQuestionTypeChange(question.id, v as QuestionType)}>
                         <SelectTrigger className="w-[140px]">

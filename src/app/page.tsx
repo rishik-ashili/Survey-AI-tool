@@ -4,7 +4,7 @@ import { useState } from "react";
 import { FileText, Loader2, Sparkles, PencilRuler, Eye, Save, ListChecks } from "lucide-react";
 
 import type { SurveyQuestion, SavedSurvey } from "@/types";
-import { handleGenerateSurvey, type GenerateSurveyInput } from "@/app/actions";
+import { handleGenerateSurvey, type GenerateSurveyInput, type GenerateSurveyOutput } from "@/app/actions";
 import { useToast } from "@/hooks/use-toast";
 import Logo from "@/components/logo";
 import SurveyGeneratorForm from "@/components/survey-generator-form";
@@ -13,6 +13,7 @@ import SurveyPreview from "@/components/survey-preview";
 import SavedSurveysList from "@/components/saved-surveys-list";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import AddMoreQuestionsDialog from "@/components/add-more-questions-dialog";
 
 export default function Home() {
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
@@ -40,8 +41,8 @@ export default function Home() {
         setQuestions(
           result.surveyQuestions.map((q, i) => ({
             id: `q-${Date.now()}-${i}`,
-            text: q,
-            type: 'text',
+            text: q.text,
+            type: q.type,
           }))
         );
         toast({
@@ -68,13 +69,14 @@ export default function Home() {
     }
   };
   
-  const handleAddMoreQuestions = async () => {
+  const handleAddMoreQuestions = async (updatedPrompt?: string) => {
     if (!lastGenerationData) return;
 
     setIsLoadingMore(true);
     try {
        const result = await handleGenerateSurvey({
         ...lastGenerationData,
+        prompt: updatedPrompt || lastGenerationData.prompt,
         numberOfQuestions: 5,
         existingQuestions: questions.map(q => q.text),
       });
@@ -82,8 +84,8 @@ export default function Home() {
       if (result && result.surveyQuestions.length > 0) {
         const newQuestions = result.surveyQuestions.map((q, i) => ({
             id: `q-${Date.now()}-${i}`,
-            text: q,
-            type: 'text',
+            text: q.text,
+            type: q.type,
         }));
 
         setQuestions(prev => [...prev, ...newQuestions]);
@@ -125,6 +127,13 @@ export default function Home() {
   );
 
   return (
+    <>
+    <AddMoreQuestionsDialog
+        isOpen={!!lastGenerationData && activeTab === 'builder'}
+        originalPrompt={lastGenerationData?.prompt ?? ''}
+        onAddMore={handleAddMoreQuestions}
+        isLoading={isLoadingMore}
+      />
     <div className="flex flex-col h-screen bg-muted/20">
       <header className="flex items-center justify-between p-4 border-b bg-background">
         <Logo />
@@ -165,7 +174,10 @@ export default function Home() {
                   questions={questions}
                   setQuestions={setQuestions}
                   onSaveSuccess={() => setActiveTab("saved")}
-                  onAddMore={handleAddMoreQuestions}
+                  onAddMore={() => {
+                    const dialogTrigger = document.getElementById('add-more-dialog-trigger');
+                    dialogTrigger?.click();
+                  }}
                   isLoadingMore={isLoadingMore}
                 />
               </div>
@@ -201,5 +213,6 @@ export default function Home() {
         </Tabs>
       </main>
     </div>
+    </>
   );
 }
