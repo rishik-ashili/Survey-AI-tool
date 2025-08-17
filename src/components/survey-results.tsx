@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, Loader2, BarChartHorizontalBig, PieChart, User, Cloud } from 'lucide-react';
+import { ArrowLeft, Loader2, BarChartHorizontalBig, PieChart, User, Cloud, Tags } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
@@ -17,7 +17,7 @@ import {
   ChartLegendContent,
 } from "@/components/ui/chart"
 import { Bar, BarChart, Pie, ResponsiveContainer, Cell, XAxis, YAxis } from "recharts"
-import ReactWordcloud from 'react-wordcloud';
+import { Badge } from './ui/badge';
 
 type SurveyResultsProps = {
   survey: SavedSurvey;
@@ -26,27 +26,20 @@ type SurveyResultsProps = {
 
 const COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
 
-const WordCloud = ({ words }: { words: { text: string; value: number }[] }) => {
-  const [isClient, setIsClient] = useState(false);
-
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  if (!isClient || !words || words.length === 0) {
+const TopWords = ({ words }: { words: { text: string; value: number }[] }) => {
+  if (!words || words.length === 0) {
     return <div className="flex items-center justify-center h-full text-muted-foreground">No text responses yet.</div>;
   }
 
   return (
-    <ReactWordcloud
-      words={words}
-      options={{
-        rotations: 2,
-        rotationAngles: [0, 0],
-        fontSizes: [16, 60],
-        padding: 1,
-      }}
-    />
+    <div className="flex flex-wrap gap-2 items-center justify-center h-full">
+      {words.map((word, index) => (
+        <Badge key={index} variant="secondary" className="text-base px-3 py-1">
+          {word.text} 
+          <span className="ml-2 font-mono text-xs opacity-70">{word.value}</span>
+        </Badge>
+      ))}
+    </div>
   );
 };
 
@@ -103,7 +96,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         const questionResults = results.filter(r => r.question_id === question.id);
         
         let data: { name: string; value: number, fill: string }[] = [];
-        let wordCloudData: {text: string, value: number}[] = [];
+        let topWords: {text: string, value: number}[] = [];
 
         if (question.type === 'yes-no' || question.type === 'multiple-choice') {
             const counts: Record<string, number> = {};
@@ -137,22 +130,27 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
             data = [{ name: 'Average', value: parseFloat(avg.toFixed(2)), fill: COLORS[0] }];
         } else if (question.type === 'text') {
             const wordCounts: Record<string, number> = {};
+            const stopWords = new Set(['the', 'a', 'an', 'is', 'are', 'in', 'it', 'of', 'and', 'to', 'for', 'i', 'was', 'with']);
             questionResults.forEach(r => {
                 // simple word tokenization
                 r.answer_value.toLowerCase().split(/\s+/).forEach(word => {
-                    if (word.length > 2) { // filter out small words
-                        wordCounts[word] = (wordCounts[word] || 0) + 1;
+                    const cleanWord = word.replace(/[^a-zA-Z]/g, ''); // remove punctuation
+                    if (cleanWord.length > 2 && !stopWords.has(cleanWord)) { 
+                        wordCounts[cleanWord] = (wordCounts[cleanWord] || 0) + 1;
                     }
                 })
             });
-            wordCloudData = Object.entries(wordCounts).map(([text, value]) => ({text, value}));
+            topWords = Object.entries(wordCounts)
+              .sort(([, a], [, b]) => b - a)
+              .slice(0, 10) // Take top 10 for more variety
+              .map(([text, value]) => ({text, value}));
         }
         
         return {
             ...question,
             totalSubmissions: questionResults.length,
             data,
-            wordCloudData,
+            topWords,
         };
     });
   }, [survey, results]);
@@ -205,7 +203,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                <CardContent>
                                    <ChartContainer config={chartConfig} className="h-60">
                                      {question.type === 'text' ? (
-                                        <WordCloud words={question.wordCloudData} />
+                                        <TopWords words={question.topWords} />
                                      ) : question.type === 'number' ? (
                                          <ResponsiveContainer width="100%" height="100%">
                                              <BarChart data={question.data} layout="vertical" margin={{ left: 10, right: 40 }}>
