@@ -4,7 +4,7 @@ import { useState } from "react";
 import { FileText, Loader2, Sparkles, PencilRuler, Eye, Save, ListChecks } from "lucide-react";
 
 import type { SurveyQuestion, SavedSurvey } from "@/types";
-import { handleGenerateSurvey } from "@/app/actions";
+import { handleGenerateSurvey, type GenerateSurveyInput } from "@/app/actions";
 import { useToast } from "@/hooks/use-toast";
 import Logo from "@/components/logo";
 import SurveyGeneratorForm from "@/components/survey-generator-form";
@@ -17,8 +17,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 export default function Home() {
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [surveyTitle, setSurveyTitle] = useState("Your Awesome Survey");
   const [activeTab, setActiveTab] = useState("generator");
+  const [lastGenerationData, setLastGenerationData] = useState<Omit<GenerateSurveyInput, 'existingQuestions' | 'numberOfQuestions'> | null>(null);
   const { toast } = useToast();
 
   const handleSurveyGeneration = async (data: {
@@ -30,9 +32,10 @@ export default function Home() {
     setIsLoading(true);
     setQuestions([]);
     setSurveyTitle(data.prompt || "Generated Survey");
+    setLastGenerationData(data);
 
     try {
-      const result = await handleGenerateSurvey(data);
+      const result = await handleGenerateSurvey({...data, numberOfQuestions: 5, existingQuestions: [] });
       if (result && result.surveyQuestions.length > 0) {
         setQuestions(
           result.surveyQuestions.map((q, i) => ({
@@ -63,6 +66,48 @@ export default function Home() {
       setIsLoading(false);
     }
   };
+  
+  const handleAddMoreQuestions = async () => {
+    if (!lastGenerationData) return;
+
+    setIsLoadingMore(true);
+    try {
+       const result = await handleGenerateSurvey({
+        ...lastGenerationData,
+        numberOfQuestions: 5,
+        existingQuestions: questions.map(q => q.text),
+      });
+
+      if (result && result.surveyQuestions.length > 0) {
+        const newQuestions = result.surveyQuestions.map((q, i) => ({
+            id: `q-${Date.now()}-${i}`,
+            text: q,
+        }));
+
+        setQuestions(prev => [...prev, ...newQuestions]);
+        toast({
+          title: "Added More Questions!",
+          description: "5 new questions have been added to your survey.",
+        });
+      } else {
+         toast({
+          variant: "destructive",
+          title: "Generation Failed",
+          description: "Could not generate more questions. Please try again.",
+        });
+      }
+    } catch (error) {
+       console.error(error);
+      toast({
+        variant: "destructive",
+        title: "An Error Occurred",
+        description: "Something went wrong. Please check the console and try again.",
+      });
+    } finally {
+        setIsLoadingMore(false);
+    }
+  }
+
 
   const LoadingState = () => (
     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
@@ -118,6 +163,8 @@ export default function Home() {
                   questions={questions}
                   setQuestions={setQuestions}
                   onSaveSuccess={() => setActiveTab("saved")}
+                  onAddMore={handleAddMoreQuestions}
+                  isLoadingMore={isLoadingMore}
                 />
               </div>
              )}

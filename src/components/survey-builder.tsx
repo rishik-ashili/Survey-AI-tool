@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, Trash2, Save } from "lucide-react";
+import { Download, Trash2, Save, PlusCircle, Loader2 } from "lucide-react";
 
 import type { SurveyQuestion, SavedSurvey } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,8 @@ type SurveyBuilderProps = {
   questions: SurveyQuestion[];
   setQuestions: React.Dispatch<React.SetStateAction<SurveyQuestion[]>>;
   onSaveSuccess: () => void;
+  onAddMore: () => void;
+  isLoadingMore: boolean;
 };
 
 export default function SurveyBuilder({
@@ -22,6 +24,8 @@ export default function SurveyBuilder({
   questions,
   setQuestions,
   onSaveSuccess,
+  onAddMore,
+  isLoadingMore,
 }: SurveyBuilderProps) {
   const [savedSurveys, setSavedSurveys] = useLocalStorage<SavedSurvey[]>("saved-surveys", []);
   const { toast } = useToast();
@@ -70,6 +74,10 @@ export default function SurveyBuilder({
           </p>
         </div>
         <div className="flex gap-2">
+           <Button onClick={onAddMore} disabled={isLoadingMore} variant="outline">
+            {isLoadingMore ? <Loader2 className="animate-spin" /> : <PlusCircle />}
+            Add 5 More
+          </Button>
           <Button onClick={handleSaveSurvey} disabled={questions.length === 0}>
             <Save className="mr-2 h-4 w-4" />
             Save Survey

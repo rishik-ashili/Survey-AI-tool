@@ -37,6 +37,13 @@ type SurveyGeneratorFormProps = {
   isLoading: boolean;
 };
 
+const toneButtons = [
+    { label: "Professional", value: "Keep the tone professional and corporate." },
+    { label: "Government", value: "Use formal language suitable for government surveys." },
+    { label: "Creative", value: "Use a creative and engaging tone." },
+    { label: "Casual", value: "Use a casual and friendly tone." },
+]
+
 export default function SurveyGeneratorForm({
   onGenerateSurvey,
   isLoading,
@@ -105,6 +112,13 @@ export default function SurveyGeneratorForm({
                   {...field}
                 />
               </FormControl>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {toneButtons.map(tone => (
+                    <Button key={tone.label} type="button" variant="outline" size="sm" onClick={() => form.setValue('userInstructions', tone.value)}>
+                        {tone.label}
+                    </Button>
+                ))}
+              </div>
               <FormMessage />
             </FormItem>
           )}

@@ -18,6 +18,8 @@ const GenerateSurveyInputSchema = z.object({
   userInstructions: z.string().optional().describe('Additional instructions from the user.'),
   exampleInputs: z.string().optional().describe('Example inputs to guide survey generation.'),
   questionBankContent: z.string().optional().describe('Content from a question bank to integrate.'),
+  numberOfQuestions: z.number().optional().default(5).describe('The number of questions to generate.'),
+  existingQuestions: z.array(z.string()).optional().describe('An array of existing questions to avoid duplicating.'),
 });
 export type GenerateSurveyInput = z.infer<typeof GenerateSurveyInputSchema>;
 
@@ -38,6 +40,8 @@ const generateSurveyPrompt = ai.definePrompt({
 
 Prompt: {{{prompt}}}
 
+Generate exactly {{{numberOfQuestions}}} survey questions.
+
 {{#if userInstructions}}
 User Instructions: {{{userInstructions}}}
 {{/if}}
@@ -48,6 +52,13 @@ Example Inputs: {{{exampleInputs}}}
 
 {{#if questionBankContent}}
 Question Bank Content: {{{questionBankContent}}}
+{{/if}}
+
+{{#if existingQuestions}}
+Do not generate questions that are similar to these existing questions:
+{{#each existingQuestions}}
+- {{{this}}}
+{{/each}}
 {{/if}}
 
 Ensure the survey questions are relevant to the prompt and take into account any user instructions, example inputs, or question bank content provided. Return the survey questions as an array of strings.
