@@ -2,12 +2,12 @@
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
-import type { SavedSurvey, SurveyResult } from '@/types';
+import type { SavedSurvey, SurveyResult, PersonalizedAnswer } from '@/types';
 import { getSurveyResults } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ArrowLeft, Loader2, User, ChevronDown, PieChart as PieIcon, LineChart as LineIcon, BarChart as BarIcon, Smartphone, Laptop } from 'lucide-react';
+import { ArrowLeft, Loader2, User, ChevronDown, PieChart as PieIcon, LineChart as LineIcon, BarChart as BarIcon, Smartphone, Laptop, Sparkles } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
@@ -16,6 +16,7 @@ import {
 import { Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Pie, Cell, Line, LineChart, PieChart, BarChart } from "recharts"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { format } from 'date-fns';
+import { Separator } from './ui/separator';
 
 
 type SurveyResultsProps = {
@@ -39,22 +40,25 @@ type Submission = {
     questionText: string;
     answerValue: string;
   }[];
+  personalizedAnswers: PersonalizedAnswer[];
 };
 
 
 export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
   const [results, setResults] = useState<SurveyResult[]>([]);
+  const [personalizedResults, setPersonalizedResults] = useState<PersonalizedAnswer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
     const fetchResults = async () => {
       setIsLoading(true);
-      const { data, error } = await getSurveyResults(survey.id);
+      const { data, personalizedData, error } = await getSurveyResults(survey.id);
       if (error) {
         toast({ variant: "destructive", title: "Error", description: "Could not fetch survey results." });
       } else {
         setResults(data || []);
+        setPersonalizedResults(personalizedData || []);
       }
       setIsLoading(false);
     };
@@ -73,6 +77,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         country: result.country,
         device_type: result.device_type,
         answers: [],
+        personalizedAnswers: [], // Initialize personalized answers
       };
       acc[result.submission_id].answers.push({
         questionId: result.question_id,
@@ -82,6 +87,13 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
       return acc;
     }, {} as Record<string, Submission>);
     
+    // Add personalized answers to the corresponding submission
+    personalizedResults.forEach(pAns => {
+      if (grouped[pAns.submission_id]) {
+        grouped[pAns.submission_id].personalizedAnswers.push(pAns);
+      }
+    });
+
     Object.values(grouped).forEach(submission => {
         submission.answers.sort((a, b) => {
             const qA_index = survey.questions.findIndex(q => q.id === a.questionId);
@@ -91,7 +103,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     });
 
     return Object.values(grouped).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [results, survey.questions]);
+  }, [results, personalizedResults, survey.questions]);
 
   const aggregatedResults = useMemo(() => {
     return survey.questions.map(question => {
@@ -102,7 +114,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         if (question.type === 'yes-no' || question.type === 'multiple-choice' || question.type === 'multiple-choice-multi') {
             const counts: Record<string, number> = {};
             
-            const allOptions = question.type === 'yes-no' ? ['yes', 'no'] : question.options?.map(o => o.text) || [];
+            const allOptions = question.type === 'yes-no' ? ['Yes', 'No'] : question.options?.map(o => o.text) || [];
             allOptions.forEach(opt => counts[opt] = 0);
 
             questionResults.forEach(r => {
@@ -312,6 +324,25 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                 </li>
                               ))}
                             </ul>
+                            {sub.personalizedAnswers.length > 0 && (
+                                <>
+                                 <Separator className="my-4" />
+                                 <div className="space-y-4">
+                                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                                        <Sparkles className="h-4 w-4 text-primary" />
+                                        Personalized Follow-up
+                                    </h4>
+                                    <ul className="space-y-4">
+                                     {sub.personalizedAnswers.map((pAns) => (
+                                        <li key={pAns.id} className="text-sm">
+                                            <strong className="font-medium">{pAns.question_text}</strong>
+                                            <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{pAns.answer_text}</p>
+                                        </li>
+                                     ))}
+                                    </ul>
+                                 </div>
+                                </>
+                            )}
                           </div>
                       </CollapsibleContent>
                     </Collapsible>

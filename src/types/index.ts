@@ -76,6 +76,14 @@ export interface SurveyResult {
     iterative_source_question_text?: string | null;
 }
 
+export interface PersonalizedAnswer {
+  id: string;
+  submission_id: string;
+  question_text: string;
+  answer_text: string;
+  created_at: string;
+}
+
 export interface SubmissionMetadata {
     latitude?: number;
     longitude?: number;

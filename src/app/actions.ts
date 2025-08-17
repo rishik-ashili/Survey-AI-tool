@@ -7,7 +7,7 @@ import { generateSurvey, type GenerateSurveyInput, type GenerateSurveyOutput } f
 import { validateAnswer, type ValidateAnswerInput, type ValidateAnswerOutput } from "@/ai/flows/validate-answer-flow";
 import { shouldAskQuestion, type ShouldAskQuestionInput, type ShouldAskQuestionOutput } from "@/ai/flows/should-ask-question-flow";
 import { generatePersonalizedQuestions, type GeneratePersonalizedQuestionsInput, type GeneratePersonalizedQuestionsOutput } from "@/ai/flows/generate-personalized-questions-flow";
-import type { SavedSurvey, SurveyQuestion, SurveyResult, SubmissionMetadata } from "@/types";
+import type { SavedSurvey, SurveyQuestion, SurveyResult, SubmissionMetadata, PersonalizedAnswer } from "@/types";
 
 export async function handleGenerateSurvey(input: GenerateSurveyInput): Promise<GenerateSurveyOutput> {
   try {
@@ -83,7 +83,7 @@ async function insertQuestions(supabase: any, questions: SurveyQuestion[], surve
             questionMap.set(id, newQuestionDbId); 
         }
 
-        if ((q.type === 'multiple-choice' || q.type === 'multiple-choice-multi') && options) {
+        if ((q.type === 'multiple-choice' || q.type === 'multiple-choice-multi' || q.type === 'yes-no') && options) {
             const optionsToInsert = options.map(opt => ({
                 question_id: newQuestionDbId,
                 text: opt.text,
@@ -339,15 +339,18 @@ export async function submitSurvey(
     });
 
 
-    const { error: answersError } = await supabase
-        .from('answers')
-        .insert(answersToInsert);
+    if (answersToInsert.length > 0) {
+      const { error: answersError } = await supabase
+          .from('answers')
+          .insert(answersToInsert);
 
-    if (answersError) {
-        console.error("Error saving answers:", answersError);
-        await supabase.from('submissions').delete().match({ id: submissionData.id });
-        return { submissionId: null, error: answersError.message };
+      if (answersError) {
+          console.error("Error saving answers:", answersError);
+          await supabase.from('submissions').delete().match({ id: submissionData.id });
+          return { submissionId: null, error: answersError.message };
+      }
     }
+
 
     return { submissionId: submissionData.id, error: null };
 }
@@ -384,7 +387,7 @@ export async function submitPersonalizedAnswers(
 }
 
 
-export async function getSurveyResults(surveyId: string): Promise<{data: SurveyResult[] | null, error: string | null}> {
+export async function getSurveyResults(surveyId: string): Promise<{data: SurveyResult[] | null, personalizedData: PersonalizedAnswer[] | null, error: string | null}> {
     const cookieStore = cookies()
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -392,6 +395,7 @@ export async function getSurveyResults(surveyId: string): Promise<{data: SurveyR
         { cookies: { get: (name) => cookieStore.get(name)?.value } }
     );
 
+    // Fetch main survey results from the view
     const { data, error } = await supabase
         .from('survey_results')
         .select('*')
@@ -400,10 +404,27 @@ export async function getSurveyResults(surveyId: string): Promise<{data: SurveyR
 
     if (error) {
         console.error("Error fetching survey results:", error);
-        return { data: null, error: error.message };
+        return { data: null, personalizedData: null, error: error.message };
     }
     
-    return { data, error: null };
-}
+    // Get unique submission IDs from the results
+    const submissionIds = [...new Set(data.map(r => r.submission_id))];
 
-    
+    // Fetch personalized answers for those submissions
+    let personalizedData: PersonalizedAnswer[] | null = null;
+    if (submissionIds.length > 0) {
+      const { data: pData, error: pError } = await supabase
+        .from('personalized_answers')
+        .select('*')
+        .in('submission_id', submissionIds);
+      
+      if (pError) {
+        console.error("Error fetching personalized answers:", pError);
+        // Continue without personalized data if this fails
+      } else {
+        personalizedData = pData;
+      }
+    }
+
+    return { data, personalizedData, error: null };
+}
