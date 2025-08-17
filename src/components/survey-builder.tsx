@@ -55,18 +55,18 @@ const QuestionBuilderItem: React.FC<{
         'multiple-choice-multi': <ListChecks className="h-4 w-4" />,
     };
 
-    const findQuestionByIdRecursive = (id: string, searchQuestions: SurveyQuestion[]): SurveyQuestion | null => {
-        for (const q of searchQuestions) {
-            if (q.id === id) return q;
-            if (q.sub_questions) {
-                const found = findQuestionByIdRecursive(id, q.sub_questions);
-                if (found) return found;
-            }
+    const findQuestionTextByIdRecursive = (id: string, questions: SurveyQuestion[]): string | null => {
+      for (const q of questions) {
+        if (q.id === id) return q.text;
+        if (q.sub_questions) {
+          const foundText = findQuestionTextByIdRecursive(id, q.sub_questions);
+          if (foundText) return foundText;
         }
-        return null;
+      }
+      return null;
     };
-
-    const iterativeSourceQuestion = findQuestionByIdRecursive(question.iterative_source_question_id || '', allQuestions);
+    
+    const iterativeSourceQuestionText = question.iterative_source_question_text || (question.iterative_source_question_id ? findQuestionTextByIdRecursive(question.iterative_source_question_id, allQuestions) : '');
 
 
     return (
@@ -90,7 +90,7 @@ const QuestionBuilderItem: React.FC<{
                     {question.is_iterative && (
                          <div className="flex items-center gap-2 p-2 rounded-md bg-blue-50 border border-blue-200 text-sm">
                             <Repeat className="h-4 w-4 text-blue-600"/>
-                            <span className="text-blue-700">This question repeats for each item from: "{iterativeSourceQuestion?.text || ''}"</span>
+                            <span className="text-blue-700">This question repeats for each item from: "{iterativeSourceQuestionText || ''}"</span>
                          </div>
                     )}
                     {question.parent_question_id && (

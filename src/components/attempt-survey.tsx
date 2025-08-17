@@ -78,9 +78,18 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
              }
           }
 
+          // If the question is visible so far, add its answer to history for subsequent checks
+          if (shouldShow && answers[question.id] !== undefined) {
+             const answerValue = Array.isArray(answers[question.id]) ? answers[question.id].join(', ') : String(answers[question.id]);
+             if (answerValue) {
+                answerHistory.push({ question: question.text, answer: answerValue});
+             }
+          }
+
           // Rule 3: Use AI to determine if a question is relevant
           if (shouldShow && answerHistory.length > 0) {
              try {
+                // Check subsequent questions' relevance
                 const aiCheck = await handleShouldAskQuestion({
                     question: question.text,
                     previousAnswers: answerHistory,
@@ -94,14 +103,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
           }
 
           newVisibility[question.id] = shouldShow;
-          
-          // If the question is visible, add its answer to history for subsequent checks
-          if (shouldShow && answers[question.id] !== undefined) {
-             const answerValue = Array.isArray(answers[question.id]) ? answers[question.id].join(', ') : String(answers[question.id]);
-             if (answerValue) {
-                answerHistory.push({ question: question.text, answer: answerValue});
-             }
-          }
           
           // Recursively process sub-questions
           if (question.sub_questions) {
