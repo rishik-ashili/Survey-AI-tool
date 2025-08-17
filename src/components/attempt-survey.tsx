@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useMemo, Fragment, useEffect, useCallback } from 'react';
-import type { SavedSurvey, SurveyQuestion, SubmissionMetadata } from '@/types';
+import type { SavedSurvey, SurveyQuestion, SubmissionMetadata, PersonalizedAnswer } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Input } from './ui/input';
 import { Checkbox } from './ui/checkbox';
-import { submitSurvey, handleValidateAnswer, handleShouldAskQuestion, handleGeneratePersonalizedQuestions, submitPersonalizedAnswers } from '@/app/actions';
+import { submitSurvey, handleValidateAnswer, handleGeneratePersonalizedQuestions, submitPersonalizedAnswers } from '@/app/actions';
 import { Separator } from './ui/separator';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -24,7 +24,6 @@ type AttemptSurveyProps = {
 };
 
 type ValidationErrors = Record<string, string>;
-type QuestionVisibility = Record<string, boolean>;
 type PersonalizedQuestion = { questionText: string };
 
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
@@ -34,8 +33,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [metadata, setMetadata] = useState<SubmissionMetadata>({});
   const [errors, setErrors] = useState<ValidationErrors>({});
-  const [visibility, setVisibility] = useState<QuestionVisibility>({});
-  const [isInitializing, setIsInitializing] = useState(true);
   const [isValidated, setIsValidated] = useState(false);
   
   const [submissionId, setSubmissionId] = useState<string | null>(null);
@@ -48,26 +45,47 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const { toast } = useToast();
   const isMobile = useIsMobile();
 
+
   useEffect(() => {
-    // Fetch device type
-    setMetadata(prev => ({...prev, device_type: isMobile ? 'mobile' : 'desktop' }));
-    
-    // Fetch location
+    const fetchMetadata = async (position: GeolocationPosition) => {
+        const { latitude, longitude } = position.coords;
+        let city = undefined;
+        let country = undefined;
+
+        try {
+            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+            if (response.ok) {
+                const data = await response.json();
+                city = data.address.city || data.address.town || data.address.village;
+                country = data.address.country;
+            }
+        } catch (e) {
+            console.warn("Could not fetch reverse geolocation data.", e);
+        }
+
+        setMetadata({
+            latitude,
+            longitude,
+            city,
+            country,
+            device_type: isMobile ? 'mobile' : 'desktop'
+        });
+    }
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setMetadata(prev => ({
-            ...prev,
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          }));
-        },
+        fetchMetadata,
         (error) => {
           console.warn(`Geolocation error: ${error.message}`);
+          // Still set device type even if location fails
+          setMetadata(prev => ({...prev, device_type: isMobile ? 'mobile' : 'desktop'}));
         }
       );
+    } else {
+        setMetadata(prev => ({...prev, device_type: isMobile ? 'mobile' : 'desktop' }));
     }
   }, [isMobile]);
+
 
   const questionMap = useMemo(() => {
     const map = new Map<string, SurveyQuestion>();
@@ -82,41 +100,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     addQuestionsToMap(survey.questions);
     return map;
   }, [survey.questions]);
-
-  // This effect hook runs once on mount to determine the initial visibility using AI.
-  useEffect(() => {
-    const initializeVisibility = async () => {
-      const initialVisibility: QuestionVisibility = {};
-      const answerHistory: { question: string; answer: string; }[] = [];
-
-      const processQuestions = async (questions: SurveyQuestion[]) => {
-        for (const question of questions) {
-           try {
-              // Only check top-level questions initially
-              if (!question.parent_question_id) {
-                const aiCheck = await handleShouldAskQuestion({
-                    question: question.text,
-                    previousAnswers: answerHistory,
-                });
-                initialVisibility[question.id] = aiCheck.shouldAsk;
-              } else {
-                 initialVisibility[question.id] = true; // Sub-questions are visible by default, parent logic handles showing them
-              }
-           } catch(e) {
-              console.error("AI visibility check failed, defaulting to visible", e);
-              initialVisibility[question.id] = true;
-           }
-        }
-      };
-
-      await processQuestions(Array.from(questionMap.values()));
-      setVisibility(initialVisibility);
-      setIsInitializing(false);
-    };
-
-    initializeVisibility();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [survey.questions, questionMap]);
 
 
   const handleAnswerChange = (questionId: string, value: any, isIterative: boolean = false, iterationIndex?: number) => {
@@ -162,12 +145,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   }, [answers]);
 
   const isQuestionVisible = useCallback((question: SurveyQuestion): boolean => {
-      // Rule 1: Check initial AI-based visibility
-      if (visibility[question.id] === false) {
-          return false;
-      }
-      
-      // Rule 2: Sub-question visibility depends on parent answer
+      // Sub-question visibility depends on parent answer
       if (question.parent_question_id) {
           const parent = questionMap.get(question.parent_question_id);
           if (!parent || !isQuestionVisible(parent)) {
@@ -188,7 +166,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
           }
       }
 
-      // Rule 3: Iterative question visibility depends on source question having a numeric answer
+      // Iterative question visibility depends on source question having a numeric answer
       if (question.is_iterative && question.iterative_source_question_id) {
           const sourceAnswer = answers[question.iterative_source_question_id];
           const count = Number(sourceAnswer);
@@ -198,7 +176,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       }
       
       return true;
-  }, [visibility, questionMap, answers]);
+  }, [questionMap, answers]);
 
   const validateForm = async () => {
      let allValid = true;
@@ -385,16 +363,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       );
   }
 
-  if (isInitializing) {
-     return (
-        <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-            <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Preparing your smart survey...</h2>
-            <p className="text-muted-foreground">The AI is analyzing the survey logic. This may take a moment.</p>
-        </div>
-    )
-  }
-
 
   if (submissionId) {
     return (
@@ -492,5 +460,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     </div>
   );
 }
+
+    
 
     
