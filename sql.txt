@@ -171,3 +171,61 @@ JOIN
 -- Allow anyone to delete surveys
 CREATE POLICY "Anyone can delete surveys." ON surveys
   FOR DELETE USING (true);
+
+-- Add a new type for multi-select multiple choice questions
+ALTER TYPE question_type ADD VALUE 'multiple-choice-multi';
+
+-- Add columns for numeric range to the questions table
+ALTER TABLE questions
+ADD COLUMN min_range INTEGER,
+ADD COLUMN max_range INTEGER;
+
+ALTER TABLE questions
+ADD COLUMN expected_answers TEXT;
+
+-- Drop dependent view first
+DROP VIEW IF EXISTS survey_results;
+
+-- Add columns for conditional logic and iteration
+ALTER TABLE questions
+ADD COLUMN parent_question_id UUID REFERENCES questions(id) ON DELETE CASCADE,
+ADD COLUMN trigger_condition_value TEXT, -- e.g., 'Yes', 'No', or a specific option text
+ADD COLUMN is_iterative BOOLEAN DEFAULT FALSE,
+ADD COLUMN iterative_source_question_id UUID REFERENCES questions(id) ON DELETE SET NULL,
+ADD COLUMN iterative_source_question_text TEXT;
+
+
+-- Add indexes for performance
+CREATE INDEX idx_questions_parent_question_id ON questions(parent_question_id);
+CREATE INDEX idx_questions_iterative_source_question_id ON questions(iterative_source_question_id);
+
+
+-- Recreate the view with the new structure
+CREATE VIEW survey_results AS
+SELECT
+    s.id AS survey_id,
+    s.title AS survey_title,
+    sub.id AS submission_id,
+    sub.user_name,
+    sub.created_at AS submission_created_at,
+    sub.latitude,
+    sub.longitude,
+    sub.city,
+    sub.country,
+    sub.device_type,
+    q.id AS question_id,
+    q.text AS question_text,
+    q.type AS question_type,
+    a.value AS answer_value,
+    q.parent_question_id,
+    q.is_iterative,
+    q.iterative_source_question_id,
+    q.iterative_source_question_text
+FROM
+    surveys s
+JOIN
+    submissions sub ON s.id = sub.survey_id
+JOIN
+    answers a ON sub.id = a.submission_id
+JOIN
+    questions q ON a.question_id = q.id;

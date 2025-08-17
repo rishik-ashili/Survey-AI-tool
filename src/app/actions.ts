@@ -49,7 +49,8 @@ async function insertQuestions(supabase: any, questions: Omit<SurveyQuestion, 'i
                 ...questionToInsert,
                 survey_id: surveyId,
                 parent_question_id: parentQuestionDbId,
-                iterative_source_question_id: iterativeSourceDbId
+                iterative_source_question_id: iterativeSourceDbId,
+                iterative_source_question_text: q.iterative_source_question_text, // Add this line
             })
             .select()
             .single();
@@ -60,7 +61,7 @@ async function insertQuestions(supabase: any, questions: Omit<SurveyQuestion, 'i
         }
 
         const newQuestionDbId = questionsData.id;
-        questionMap.set(q.id, newQuestionDbId);
+        questionMap.set(q.id, newQuestionDbId); // q.id is the temporary client-side ID
 
         // Insert options for multiple-choice questions
         if ((q.type === 'multiple-choice' || q.type === 'multiple-choice-multi') && q.options) {
@@ -79,9 +80,14 @@ async function insertQuestions(supabase: any, questions: Omit<SurveyQuestion, 'i
 
         // Recursively insert sub_questions
         if (sub_questions && sub_questions.length > 0) {
-            await insertQuestions(supabase, sub_questions, surveyId, newQuestionDbId);
+            // Pass the updated questionMap to the recursive call
+            const subQuestionMap = await insertQuestions(supabase, sub_questions, surveyId, newQuestionDbId);
+            for (const [key, value] of subQuestionMap.entries()) {
+                questionMap.set(key, value);
+            }
         }
     }
+    return questionMap;
 }
 
 

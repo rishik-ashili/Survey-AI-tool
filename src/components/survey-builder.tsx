@@ -36,6 +36,7 @@ type SurveyBuilderProps = {
 const QuestionBuilderItem: React.FC<{
     question: SurveyQuestion;
     index: number;
+    allQuestions: SurveyQuestion[];
     level?: number;
     onUpdate: (id: string, field: keyof SurveyQuestion, value: any, parentId?: string) => void;
     onDelete: (id: string, parentId?: string) => void;
@@ -43,7 +44,7 @@ const QuestionBuilderItem: React.FC<{
     onOptionChange: (qId: string, optId: string, text: string, parentId?: string) => void;
     addOption: (qId: string, parentId?: string) => void;
     removeOption: (qId: string, optId: string, parentId?: string) => void;
-}> = ({ question, index, level = 0, onUpdate, onDelete, onTypeChange, onOptionChange, addOption, removeOption }) => {
+}> = ({ question, index, allQuestions, level = 0, onUpdate, onDelete, onTypeChange, onOptionChange, addOption, removeOption }) => {
     const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
 
     const questionTypeIcons: Record<QuestionType, React.ReactNode> = {
@@ -55,6 +56,19 @@ const QuestionBuilderItem: React.FC<{
     };
 
     const parentId = question.parent_question_id || undefined;
+
+    const findQuestionTextByIdRecursive = (id: string, searchQuestions: SurveyQuestion[]): string | null => {
+        for (const q of searchQuestions) {
+            if (q.id === id) return q.text;
+            if (q.sub_questions) {
+                const foundText = findQuestionTextByIdRecursive(id, q.sub_questions);
+                if (foundText) return foundText;
+            }
+        }
+        return null;
+    }
+    const iterativeSourceQuestionText = findQuestionTextByIdRecursive(question.iterative_source_question_id || '', allQuestions);
+
 
     return (
         <div className="space-y-3">
@@ -77,7 +91,7 @@ const QuestionBuilderItem: React.FC<{
                     {question.is_iterative && (
                          <div className="flex items-center gap-2 p-2 rounded-md bg-blue-50 border border-blue-200 text-sm">
                             <Repeat className="h-4 w-4 text-blue-600"/>
-                            <span className="text-blue-700">This question repeats for each item from: "{question.iterative_source_question_id}"</span>
+                            <span className="text-blue-700">This question repeats for each item from: "{iterativeSourceQuestionText || ''}"</span>
                          </div>
                     )}
                     {question.parent_question_id && (
@@ -197,6 +211,7 @@ const QuestionBuilderItem: React.FC<{
                             key={sub.id}
                             question={sub}
                             index={subIndex}
+                            allQuestions={allQuestions}
                             level={level + 1}
                             onUpdate={onUpdate}
                             onDelete={onDelete}
@@ -323,33 +338,45 @@ export default function SurveyBuilder({
 
     setIsSaving(true);
     
-    // Map temporary iterative source IDs to the text of the question, as the AI needs text.
-    const questionsToSave = JSON.parse(JSON.stringify(questions)); // Deep copy to avoid mutating state
-    const findQuestionTextById = (id: string, searchQuestions: SurveyQuestion[]): string | null => {
-        for (const q of searchQuestions) {
-            if (q.id === id) return q.text;
-            if (q.sub_questions) {
-                const foundText = findQuestionTextById(id, q.sub_questions);
-                if (foundText) return foundText;
-            }
+    // Create a map of temp IDs to question text for the entire survey tree
+    const idToTextMap = new Map<string, string>();
+    const buildIdToTextMap = (qs: SurveyQuestion[]) => {
+      for (const q of qs) {
+        idToTextMap.set(q.id, q.text);
+        if (q.sub_questions) {
+          buildIdToTextMap(q.sub_questions);
         }
-        return null;
-    }
+      }
+    };
+    buildIdToTextMap(questions);
+    
+    // Deep copy and prepare questions for saving
+    const questionsToSave = JSON.parse(JSON.stringify(questions));
 
-    const mapIterativeSource = (qs: SurveyQuestion[]) => {
-        return qs.map(q => {
-            if (q.is_iterative && q.iterative_source_question_id) {
-                 q.iterative_source_question_id = findQuestionTextById(q.iterative_source_question_id, questions) || undefined;
-            }
-            if (q.sub_questions) {
-                q.sub_questions = mapIterativeSource(q.sub_questions);
-            }
-            delete (q as any).id; // Remove temp id
-            return q;
-        });
-    }
+    const mapQuestionsForSave = (qs: any[]) => {
+      return qs.map(q => {
+        const { id, ...rest } = q; // Remove temporary client-side ID
 
-    const finalQuestions = mapIterativeSource(questionsToSave);
+        if (rest.is_iterative && rest.iterative_source_question_id) {
+          rest.iterative_source_question_text = idToTextMap.get(rest.iterative_source_question_id);
+        } else {
+            rest.iterative_source_question_text = null;
+        }
+
+        if (rest.sub_questions) {
+          rest.sub_questions = mapQuestionsForSave(rest.sub_questions);
+        }
+        
+        // Remove temporary option IDs
+        if (rest.options) {
+            rest.options = rest.options.map((opt: any) => ({ text: opt.text }));
+        }
+
+        return rest;
+      });
+    };
+
+    const finalQuestions = mapQuestionsForSave(questionsToSave);
 
     const { data, error } = await saveSurvey(title, finalQuestions);
     setIsSaving(false);
@@ -397,6 +424,7 @@ export default function SurveyBuilder({
                 key={question.id}
                 question={question}
                 index={index}
+                allQuestions={questions}
                 onUpdate={handleUpdateQuestion as any}
                 onDelete={handleDelete}
                 onTypeChange={handleQuestionTypeChange}

@@ -26,6 +26,7 @@ export interface SurveyQuestion {
 
   is_iterative?: boolean;
   iterative_source_question_id?: string | null; // The ID of the question that determines the number of loops (e.g., "How many children?")
+  iterative_source_question_text?: string | null; // The text of the source question
 }
 
 export interface SavedSurvey {
@@ -71,6 +72,7 @@ export interface SurveyResult {
     parent_question_id?: string | null;
     is_iterative?: boolean;
     iterative_source_question_id?: string | null;
+    iterative_source_question_text?: string | null;
 }
 
 export interface SubmissionMetadata {
