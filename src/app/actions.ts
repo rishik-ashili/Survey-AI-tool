@@ -32,17 +32,17 @@ export async function handleValidateAnswer(input: ValidateAnswerInput): Promise<
 }
 
 
-async function insertQuestions(supabase: any, questions: Omit<SurveyQuestion, 'id'>[], surveyId: string, parentQuestionDbId?: string) {
-    const questionMap = new Map<string, string>(); // Maps temp client ID to DB ID
+async function insertQuestions(supabase: any, questions: SurveyQuestion[], surveyId: string, parentQuestionDbId?: string, questionMap: Map<string, string> = new Map()) {
 
     for (const q of questions) {
-        const { sub_questions, ...questionToInsert } = q;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { sub_questions, options, id, ...questionToInsert } = q;
 
         // Find the DB ID for the iterative source question if it exists
         const iterativeSourceDbId = q.is_iterative && q.iterative_source_question_id 
             ? questionMap.get(q.iterative_source_question_id)
             : null;
-
+        
         const { data: questionsData, error: questionsError } = await supabase
             .from('questions')
             .insert({
@@ -50,7 +50,6 @@ async function insertQuestions(supabase: any, questions: Omit<SurveyQuestion, 'i
                 survey_id: surveyId,
                 parent_question_id: parentQuestionDbId,
                 iterative_source_question_id: iterativeSourceDbId,
-                iterative_source_question_text: q.iterative_source_question_text, // Add this line
             })
             .select()
             .single();
@@ -61,11 +60,14 @@ async function insertQuestions(supabase: any, questions: Omit<SurveyQuestion, 'i
         }
 
         const newQuestionDbId = questionsData.id;
-        questionMap.set(q.id, newQuestionDbId); // q.id is the temporary client-side ID
+        if(id) { // The temporary client-side ID
+            questionMap.set(id, newQuestionDbId); 
+        }
 
-        // Insert options for multiple-choice questions
-        if ((q.type === 'multiple-choice' || q.type === 'multiple-choice-multi') && q.options) {
-            const optionsToInsert = q.options.map(opt => ({
+
+        // Insert options for multiple-choice questions into the separate `question_options` table
+        if ((q.type === 'multiple-choice' || q.type === 'multiple-choice-multi') && options) {
+            const optionsToInsert = options.map(opt => ({
                 question_id: newQuestionDbId,
                 text: opt.text,
             }));
@@ -73,6 +75,8 @@ async function insertQuestions(supabase: any, questions: Omit<SurveyQuestion, 'i
                 const { error: optionsError } = await supabase.from('question_options').insert(optionsToInsert);
                 if (optionsError) {
                     console.error("Error saving question options:", optionsError);
+                    // Rollback the question we just inserted
+                    await supabase.from('questions').delete().match({ id: newQuestionDbId });
                     throw new Error(optionsError.message);
                 }
             }
@@ -80,18 +84,14 @@ async function insertQuestions(supabase: any, questions: Omit<SurveyQuestion, 'i
 
         // Recursively insert sub_questions
         if (sub_questions && sub_questions.length > 0) {
-            // Pass the updated questionMap to the recursive call
-            const subQuestionMap = await insertQuestions(supabase, sub_questions, surveyId, newQuestionDbId);
-            for (const [key, value] of subQuestionMap.entries()) {
-                questionMap.set(key, value);
-            }
+            await insertQuestions(supabase, sub_questions, surveyId, newQuestionDbId, questionMap);
         }
     }
     return questionMap;
 }
 
 
-export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 'id'>[]): Promise<{data: SavedSurvey | null, error: string | null}> {
+export async function saveSurvey(title: string, questions: SurveyQuestion[]): Promise<{data: SavedSurvey | null, error: string | null}> {
   const cookieStore = cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -113,7 +113,38 @@ export async function saveSurvey(title: string, questions: Omit<SurveyQuestion, 
 
   // 2. Recursively insert questions and their sub-questions
   try {
-    await insertQuestions(supabase, questions, surveyData.id);
+      const idToTextMap = new Map<string, string>();
+      const buildIdToTextMap = (qs: SurveyQuestion[]) => {
+          for (const q of qs) {
+              idToTextMap.set(q.id, q.text);
+              if (q.sub_questions) {
+                  buildIdToTextMap(q.sub_questions);
+              }
+          }
+      };
+      buildIdToTextMap(questions);
+      
+      const mapQuestionsForSave = (qs: SurveyQuestion[]): any[] => {
+          return qs.map(q => {
+              const { id, ...rest } = q;
+              const newQ: any = {...rest, id};
+
+              if (rest.is_iterative && rest.iterative_source_question_id) {
+                  newQ.iterative_source_question_text = idToTextMap.get(rest.iterative_source_question_id);
+              }
+
+              if (rest.sub_questions) {
+                  newQ.sub_questions = mapQuestionsForSave(rest.sub_questions);
+              }
+              
+              if (rest.options) {
+                  newQ.options = rest.options.map((opt: any) => ({ text: opt.text }));
+              }
+              return newQ;
+          });
+      };
+      const finalQuestions = mapQuestionsForSave(questions);
+      await insertQuestions(supabase, finalQuestions, surveyData.id);
   } catch (error: any) {
     console.error("Rolling back survey creation due to error:", error);
     await supabase.from('surveys').delete().match({ id: surveyData.id }); // Rollback survey

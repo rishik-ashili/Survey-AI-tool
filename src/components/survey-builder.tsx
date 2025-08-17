@@ -338,47 +338,10 @@ export default function SurveyBuilder({
 
     setIsSaving(true);
     
-    // Create a map of temp IDs to question text for the entire survey tree
-    const idToTextMap = new Map<string, string>();
-    const buildIdToTextMap = (qs: SurveyQuestion[]) => {
-      for (const q of qs) {
-        idToTextMap.set(q.id, q.text);
-        if (q.sub_questions) {
-          buildIdToTextMap(q.sub_questions);
-        }
-      }
-    };
-    buildIdToTextMap(questions);
-    
-    // Deep copy and prepare questions for saving
-    const questionsToSave = JSON.parse(JSON.stringify(questions));
+    // The questions array is now passed directly.
+    // The server action `saveSurvey` will handle mapping and removing temporary IDs.
+    const { data, error } = await saveSurvey(title, questions);
 
-    const mapQuestionsForSave = (qs: any[]) => {
-      return qs.map(q => {
-        const { id, ...rest } = q; // Remove temporary client-side ID
-
-        if (rest.is_iterative && rest.iterative_source_question_id) {
-          rest.iterative_source_question_text = idToTextMap.get(rest.iterative_source_question_id);
-        } else {
-            rest.iterative_source_question_text = null;
-        }
-
-        if (rest.sub_questions) {
-          rest.sub_questions = mapQuestionsForSave(rest.sub_questions);
-        }
-        
-        // Remove temporary option IDs
-        if (rest.options) {
-            rest.options = rest.options.map((opt: any) => ({ text: opt.text }));
-        }
-
-        return rest;
-      });
-    };
-
-    const finalQuestions = mapQuestionsForSave(questionsToSave);
-
-    const { data, error } = await saveSurvey(title, finalQuestions);
     setIsSaving(false);
 
     if (error || !data) {
