@@ -2,12 +2,12 @@
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
-import type { SavedSurvey, SurveyResult, PersonalizedAnswer } from '@/types';
+import type { SavedSurvey, SurveyResult } from '@/types';
 import { getSurveyResults } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ArrowLeft, Loader2, User, ChevronDown, PieChart as PieIcon, LineChart as LineIcon, BarChart as BarIcon, Smartphone, Laptop, Sparkles } from 'lucide-react';
+import { ArrowLeft, Loader2, User, ChevronDown, PieChart as PieIcon, LineChart as LineIcon, BarChart as BarIcon, Smartphone, Laptop } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
@@ -16,7 +16,6 @@ import {
 import { Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Pie, Cell, Line, LineChart, PieChart, BarChart } from "recharts"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { format } from 'date-fns';
-import { Separator } from './ui/separator';
 import PersonalizedAnswersDisplay from './personalized-answers-display';
 
 
@@ -325,3 +324,5 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     </div>
   );
 }
+
+    
