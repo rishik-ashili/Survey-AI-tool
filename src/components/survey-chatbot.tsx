@@ -11,7 +11,6 @@ import { Textarea } from "./ui/textarea";
 import { handleValidateAnswer } from "@/app/actions";
 import { ScrollArea } from "./ui/scroll-area";
 import ChatbotAvatar from "./chatbot-avatar";
-import { useToast } from "@/hooks/use-toast";
 
 type Message = {
   id: string;
@@ -21,7 +20,6 @@ type Message = {
 
 type ChatbotQuestion = SurveyQuestion & {
     originalId: string;
-    globalIndex: number;
     iterationIndex?: number;
 }
 
@@ -47,12 +45,14 @@ export default function SurveyChatbot({
   const [inputValue, setInputValue] = useState("");
   const [isBotTyping, setIsBotTyping] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(-1);
+  const [visibleQuestions, setVisibleQuestions] = useState<ChatbotQuestion[]>([]);
 
-  const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-
-   const visibleQuestions = useMemo(() => {
-    const flatQuestions: Omit<ChatbotQuestion, 'globalIndex'>[] = [];
+  
+  useEffect(() => {
+    // This effect recalculates the list of visible questions whenever the answers change.
+    // This is crucial for handling conditional questions that appear based on user input.
+    const flatQuestions: ChatbotQuestion[] = [];
     const processQuestions = (qs: SurveyQuestion[]) => {
       for (const q of qs) {
         if (isQuestionVisible(q)) {
@@ -71,12 +71,12 @@ export default function SurveyChatbot({
       }
     }
     processQuestions(questions);
-    return flatQuestions.map((q, index) => ({ ...q, globalIndex: index }));
-  }, [questions, isQuestionVisible, getIterationCount, currentAnswers]);
+    setVisibleQuestions(flatQuestions);
+  }, [questions, currentAnswers, isQuestionVisible, getIterationCount]);
 
 
   const currentQuestion = useMemo(() => {
-    return visibleQuestions.find(q => q.globalIndex === currentQuestionIndex);
+    return visibleQuestions[currentQuestionIndex];
   }, [visibleQuestions, currentQuestionIndex]);
 
   const addMessage = useCallback((sender: "user" | "bot", text: string) => {
@@ -99,7 +99,7 @@ export default function SurveyChatbot({
 
         if (options.length > 0) {
             const optionsList = options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
-            questionText += `\nYour options are:\n${optionsList}`;
+            questionText += `\n\nYour options are:\n${optionsList}`;
         }
       addMessage("bot", questionText);
     } else {
@@ -109,7 +109,7 @@ export default function SurveyChatbot({
 
   const startConversation = useCallback(() => {
     setMessages([]);
-    setCurrentQuestionIndex(-1);
+    setCurrentQuestionIndex(-1); // Will be incremented to 0
     setIsBotTyping(true);
 
     if (visibleQuestions.length === 0) {
@@ -117,18 +117,18 @@ export default function SurveyChatbot({
         setIsBotTyping(false);
         return;
     }
-
-    let questionText = `Welcome! I'm here to help you with the survey. Let's start with the first question.\n\n${visibleQuestions[0].text}`;
+    const firstQuestion = visibleQuestions[0];
+    let questionText = `Welcome! I'm here to help you with the survey. Let's start with the first question.\n\n${firstQuestion.text}`;
     let options: string[] = [];
-    if (visibleQuestions[0].type === 'yes-no') {
+    if (firstQuestion.type === 'yes-no') {
         options = ['Yes', 'No'];
-    } else if (visibleQuestions[0].options) {
-        options = visibleQuestions[0].options.map(o => o.text);
+    } else if (firstQuestion.options) {
+        options = firstQuestion.options.map(o => o.text);
     }
     
     if (options.length > 0) {
         const optionsList = options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
-        questionText += `\nYour options are:\n${optionsList}`;
+        questionText += `\n\nYour options are:\n${optionsList}`;
     }
 
     addMessage("bot", questionText);
@@ -138,10 +138,10 @@ export default function SurveyChatbot({
   }, [addMessage, visibleQuestions]);
 
   useEffect(() => {
-    if (isOpen && messages.length === 0 && visibleQuestions.length > 0) {
+    if (isOpen) {
       startConversation();
     }
-  }, [isOpen, visibleQuestions, messages.length, startConversation]);
+  }, [isOpen, questions]); // Re-start if the whole survey changes
   
   useEffect(() => {
       // Auto scroll to bottom when new messages are added
@@ -201,8 +201,14 @@ export default function SurveyChatbot({
       onAnswerChange(currentQuestion.originalId, answerToSave, currentQuestion.is_iterative, currentQuestion.iterationIndex);
       
       const nextIndex = currentQuestionIndex + 1;
-      setCurrentQuestionIndex(nextIndex);
-      askQuestion(visibleQuestions[nextIndex]);
+      
+      // We need to wait for the state to update and the visibleQuestions to be recalculated
+      setTimeout(() => {
+        setCurrentQuestionIndex(nextIndex);
+        // The visibleQuestions list will be updated by the useEffect before this runs
+        const updatedVisibleQuestions = visibleQuestions;
+        askQuestion(updatedVisibleQuestions[nextIndex]);
+      }, 100); // A small delay to allow React to re-render
 
     } else {
         addMessage("bot", `I'm sorry, that doesn't seem like a valid answer. ${validationResult.suggestion}\n\nPlease try again.`);
@@ -280,7 +286,7 @@ export default function SurveyChatbot({
                   className="pr-20 min-h-0 h-12"
                   rows={1}
                 />
-                 <Button type="submit" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8" onClick={handleUserInput} disabled={isBotTyping || !inputValue.trim()}>
+                 <Button type="submit" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8" onClick={handleUserInput} disabled={isBotTyping || !inputValue.trim() || !currentQuestion}>
                     <Send className="h-4 w-4"/>
                     <span className="sr-only">Send</span>
                 </Button>
@@ -292,3 +298,5 @@ export default function SurveyChatbot({
     </div>
   );
 }
+
+    
