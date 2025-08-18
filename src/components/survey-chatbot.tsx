@@ -106,6 +106,21 @@ export default function SurveyChatbot({
       addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
     }
   }, [addMessage]);
+  
+  useEffect(() => {
+    // This effect is the single source of truth for asking questions.
+    // It runs whenever the currentQuestionIndex changes.
+    if (currentQuestionIndex === -1 || !isOpen) return;
+
+    const questionToAsk = visibleQuestions[currentQuestionIndex];
+    if (questionToAsk) {
+        askQuestion(questionToAsk);
+    } else if (currentQuestionIndex >= visibleQuestions.length && visibleQuestions.length > 0) {
+        // This case handles the end of the survey.
+        askQuestion(undefined);
+    }
+}, [currentQuestionIndex, isOpen]); // Reruns only when index changes
+
 
   const startConversation = useCallback(() => {
     setMessages([]);
@@ -198,15 +213,10 @@ export default function SurveyChatbot({
     if(validationResult.isValid) {
       onAnswerChange(currentQuestion.originalId, answerToSave, currentQuestion.is_iterative, currentQuestion.iterationIndex);
       
+      // Give React time to re-render with the new conditional question (if any)
       setTimeout(() => {
-         setVisibleQuestions(currentVisibleQuestions => {
-            const nextIndex = currentVisibleQuestions.findIndex(q => q.originalId === currentQuestion.originalId && q.iterationIndex === currentQuestion.iterationIndex);
-            const finalNextIndex = Math.min(nextIndex + 1, currentVisibleQuestions.length);
-            
-            setCurrentQuestionIndex(finalNextIndex);
-            askQuestion(currentVisibleQuestions[finalNextIndex]);
-            return currentVisibleQuestions;
-        });
+         // Simply increment the index. The useEffect will handle asking the question.
+         setCurrentQuestionIndex(prev => prev + 1);
       }, 500);
 
     } else {
@@ -285,7 +295,7 @@ export default function SurveyChatbot({
                   className="pr-20 min-h-0 h-12"
                   rows={1}
                 />
-                 <Button type="submit" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8" onClick={handleUserInput} disabled={isBotTyping || !inputValue.trim() || !currentQuestion}>
+                 <Button type="submit" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8" onClick={handleUserInput} disabled={isBotTyping || !inputValue.trim() || currentQuestionIndex < 0}>
                     <Send className="h-4 w-4"/>
                     <span className="sr-only">Send</span>
                 </Button>
