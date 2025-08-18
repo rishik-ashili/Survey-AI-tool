@@ -24,8 +24,6 @@ type SurveyResultsProps = {
   onBack: () => void;
 };
 
-const COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))", "hsl(var(--chart-5))"];
-
 type Submission = {
   id: string;
   userName: string;
@@ -40,7 +38,6 @@ type Submission = {
     questionText: string;
     answerValue: string;
   }[];
-  personalizedAnswers: PersonalizedAnswer[];
 };
 
 
@@ -69,7 +66,6 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     if (!results || results.length === 0) {
         return [];
     }
-    // Step 1: Group main answers by submission_id
     const groupedBySubmission = results.reduce((acc, result) => {
       if (!acc[result.submission_id]) {
         acc[result.submission_id] = {
@@ -82,7 +78,6 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
           country: result.country,
           device_type: result.device_type,
           answers: [],
-          personalizedAnswers: [], // Initialize personalized answers array
         };
       }
       acc[result.submission_id].answers.push({
@@ -92,17 +87,9 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
       });
       return acc;
     }, {} as Record<string, Submission>);
-
-    // Step 2: Add personalized answers to the corresponding submission
-    personalizedResults.forEach(pAns => {
-      if (groupedBySubmission[pAns.submission_id]) {
-        groupedBySubmission[pAns.submission_id].personalizedAnswers.push(pAns);
-      }
-    });
     
-    // Step 3: Return sorted array of submissions
     return Object.values(groupedBySubmission).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [results, personalizedResults]);
+  }, [results]);
 
 
   const aggregatedResults = useMemo(() => {
@@ -302,51 +289,54 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
               <div>
                 <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><User />Individual Submissions</h3>
                 <div className="space-y-4">
-                  {submissions.map(sub => (
-                    <Collapsible key={sub.id} className="border rounded-lg">
-                      <CollapsibleTrigger className="w-full p-4 flex justify-between items-center cursor-pointer hover:bg-muted/50 rounded-t-lg data-[state=open]:bg-muted/50">
-                         <div className="text-left">
-                           <div className="flex items-center gap-2">
-                            {sub.device_type === 'mobile' ? <Smartphone className="h-4 w-4 text-muted-foreground"/> : sub.device_type === 'desktop' ? <Laptop className="h-4 w-4 text-muted-foreground"/> : null}
-                            <p className="font-medium">{sub.userName}</p>
-                           </div>
-                           <p className="text-sm text-muted-foreground">{format(new Date(sub.createdAt), "PPP p")} &bull; {sub.city || 'Unknown Location'}</p>
-                         </div>
-                         <ChevronDown className="h-5 w-5 transition-transform [&[data-state=open]]:rotate-180" />
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                          <div className="p-4 border-t">
-                            <ul className="space-y-4">
-                              {sub.answers.map((ans, i) => (
-                                <li key={i} className="text-sm">
-                                  <strong className="font-medium">{ans.questionText}</strong>
-                                  <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{ans.answerValue}</p>
-                                </li>
-                              ))}
-                            </ul>
-                            {sub.personalizedAnswers && sub.personalizedAnswers.length > 0 && (
-                                <>
-                                 <Separator className="my-4" />
-                                 <div className="space-y-4">
-                                    <h4 className="text-sm font-semibold flex items-center gap-2">
-                                        <Sparkles className="h-4 w-4 text-primary" />
-                                        Personalized Follow-up
-                                    </h4>
-                                    <ul className="space-y-4">
-                                     {sub.personalizedAnswers.map((pAns) => (
-                                        <li key={pAns.id} className="text-sm">
-                                            <strong className="font-medium">{pAns.question_text}</strong>
-                                            <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{pAns.answer_text}</p>
-                                        </li>
-                                     ))}
-                                    </ul>
-                                 </div>
-                                </>
-                            )}
-                          </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  ))}
+                  {submissions.map(sub => {
+                    const submissionPersonalizedAnswers = personalizedResults.filter(pr => pr.submission_id === sub.id);
+                    return (
+                        <Collapsible key={sub.id} className="border rounded-lg">
+                        <CollapsibleTrigger className="w-full p-4 flex justify-between items-center cursor-pointer hover:bg-muted/50 rounded-t-lg data-[state=open]:bg-muted/50">
+                            <div className="text-left">
+                            <div className="flex items-center gap-2">
+                                {sub.device_type === 'mobile' ? <Smartphone className="h-4 w-4 text-muted-foreground"/> : sub.device_type === 'desktop' ? <Laptop className="h-4 w-4 text-muted-foreground"/> : null}
+                                <p className="font-medium">{sub.userName}</p>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{format(new Date(sub.createdAt), "PPP p")} &bull; {sub.city || 'Unknown Location'}</p>
+                            </div>
+                            <ChevronDown className="h-5 w-5 transition-transform [&[data-state=open]]:rotate-180" />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                            <div className="p-4 border-t">
+                                <ul className="space-y-4">
+                                {sub.answers.map((ans, i) => (
+                                    <li key={i} className="text-sm">
+                                    <strong className="font-medium">{ans.questionText}</strong>
+                                    <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{ans.answerValue}</p>
+                                    </li>
+                                ))}
+                                </ul>
+                                {submissionPersonalizedAnswers.length > 0 && (
+                                    <>
+                                    <Separator className="my-4" />
+                                    <div className="space-y-4">
+                                        <h4 className="text-sm font-semibold flex items-center gap-2">
+                                            <Sparkles className="h-4 w-4 text-primary" />
+                                            Personalized Follow-up
+                                        </h4>
+                                        <ul className="space-y-4">
+                                        {submissionPersonalizedAnswers.map((pAns) => (
+                                            <li key={pAns.id} className="text-sm">
+                                                <strong className="font-medium">{pAns.question_text}</strong>
+                                                <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{pAns.answer_text}</p>
+                                            </li>
+                                        ))}
+                                        </ul>
+                                    </div>
+                                    </>
+                                )}
+                            </div>
+                        </CollapsibleContent>
+                        </Collapsible>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -356,5 +346,3 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     </div>
   );
 }
-
-    
