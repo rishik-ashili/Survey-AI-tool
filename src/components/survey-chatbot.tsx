@@ -49,7 +49,7 @@ export default function SurveyChatbot({
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   
-  useEffect(() => {
+   useEffect(() => {
     // This effect recalculates the list of visible questions whenever the answers change.
     // This is crucial for handling conditional questions that appear based on user input.
     const flatQuestions: ChatbotQuestion[] = [];
@@ -141,7 +141,7 @@ export default function SurveyChatbot({
     if (isOpen) {
       startConversation();
     }
-  }, [isOpen, questions]); // Re-start if the whole survey changes
+  }, [isOpen]); 
   
   useEffect(() => {
       // Auto scroll to bottom when new messages are added
@@ -162,7 +162,6 @@ export default function SurveyChatbot({
     setInputValue("");
     setIsBotTyping(true);
     
-    // Special command handling
     if (userAnswer.trim().toLowerCase() === 'submit') {
         const isLastQuestionAnswered = currentQuestionIndex >= visibleQuestions.length;
         if(isLastQuestionAnswered) {
@@ -204,11 +203,13 @@ export default function SurveyChatbot({
       
       // We need to wait for the state to update and the visibleQuestions to be recalculated
       setTimeout(() => {
-        setCurrentQuestionIndex(nextIndex);
-        // The visibleQuestions list will be updated by the useEffect before this runs
-        const updatedVisibleQuestions = visibleQuestions;
-        askQuestion(updatedVisibleQuestions[nextIndex]);
-      }, 100); // A small delay to allow React to re-render
+        // We need to access the latest state of visibleQuestions, so we do it via the setState callback
+         setVisibleQuestions(currentVisibleQuestions => {
+            setCurrentQuestionIndex(nextIndex);
+            askQuestion(currentVisibleQuestions[nextIndex]);
+            return currentVisibleQuestions;
+        });
+      }, 500); // A small delay to allow React to re-render and for sub-questions to appear.
 
     } else {
         addMessage("bot", `I'm sorry, that doesn't seem like a valid answer. ${validationResult.suggestion}\n\nPlease try again.`);
@@ -298,5 +299,3 @@ export default function SurveyChatbot({
     </div>
   );
 }
-
-    
