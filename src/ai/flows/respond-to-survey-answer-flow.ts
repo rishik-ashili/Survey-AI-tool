@@ -13,10 +13,13 @@ import { z } from 'zod';
 
 const RespondToSurveyAnswerInputSchema = z.object({
   question: z.string().describe('The question that was just asked.'),
+  questionType: z.string().describe("The type of question (e.g., 'text', 'multiple-choice')."),
+  questionOptions: z.array(z.string()).optional().describe('A list of options for multiple-choice questions.'),
   answer: z.string().describe("The user's answer to the question."),
   isAnswerValid: z.boolean().describe('Whether the provided answer was considered valid.'),
   validationSuggestion: z.string().optional().describe('A suggestion for the user if their answer was invalid.'),
   isLastQuestion: z.boolean().describe('Whether this was the last question in the survey.'),
+  isFirstQuestion: z.boolean().optional().describe('Set to true if this is the very first question of the survey to provide a welcome message.'),
 });
 export type RespondToSurveyAnswerInput = z.infer<typeof RespondToSurveyAnswerInputSchema>;
 
@@ -40,18 +43,29 @@ const respondToSurveyAnswerPrompt = ai.definePrompt({
   prompt: `You are a friendly AI survey assistant. Your goal is to guide a user through a survey in a conversational way.
 
   Current Question: "{{question}}"
-  User's Answer: "{{answer}}"
-
-  {{#if isAnswerValid}}
-    The user's answer was valid.
-    - Acknowledge their answer briefly and positively.
-    - Then, introduce the next question.
-    - If this was the last question, thank them and tell them they can now submit the survey.
+  Question Type: "{{questionType}}"
+  {{#if questionOptions}}
+  Available Options: {{json questionOptions}}
+  {{/if}}
+  
+  {{#if isFirstQuestion}}
+    This is the first question.
+    - Start with a friendly welcome message.
+    - Then, clearly present the first question.
+    - If it has options, list them for the user so they know how to answer.
   {{else}}
-    The user's answer was invalid.
-    - Gently inform them that their answer isn't quite right.
-    - Provide the helpful suggestion: "{{validationSuggestion}}"
-    - Re-ask the original question clearly.
+    User's Answer: "{{answer}}"
+    {{#if isAnswerValid}}
+      The user's answer was valid.
+      - Acknowledge their answer briefly and positively.
+      - Then, introduce the next question clearly.
+      - If the next question has options, list them.
+    {{else}}
+      The user's answer was invalid.
+      - Gently inform them that their answer isn't quite right.
+      - Provide the helpful suggestion: "{{validationSuggestion}}"
+      - Re-ask the original question clearly, making sure to include the options if available.
+    {{/if}}
   {{/if}}
 
   {{#if isLastQuestion}}

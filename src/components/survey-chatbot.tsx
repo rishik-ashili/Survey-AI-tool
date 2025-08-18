@@ -41,7 +41,6 @@ export default function SurveyChatbot({
   const [inputValue, setInputValue] = useState("");
   const [isBotTyping, setIsBotTyping] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(-1);
-  const [currentIteration, setCurrentIteration] = useState(0);
 
   const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -52,7 +51,16 @@ export default function SurveyChatbot({
       const count = getIterationCount(q);
       return Array.from({ length: count }, (_, i) => ({ ...q, originalId: q.id, iterationIndex: i, text: `${q.text} (Entry ${i + 1})`}));
     }
-    return [{ ...q, originalId: q.id }];
+    const { sub_questions, ...rest } = q;
+    const allQuestions = [{ ...rest, originalId: q.id }];
+    if (sub_questions) {
+      sub_questions.forEach(sq => {
+        if(isQuestionVisible(sq)) {
+          allQuestions.push({ ...sq, originalId: sq.id });
+        }
+      })
+    }
+    return allQuestions;
   });
 
   const currentQuestion = visibleQuestions[currentQuestionIndex];
@@ -74,22 +82,44 @@ export default function SurveyChatbot({
   }, [messages]);
 
 
-  const startConversation = () => {
+  const startConversation = async () => {
     setIsBotTyping(true);
     setMessages([]);
-    setCurrentQuestionIndex(-1);
-    setTimeout(() => {
-      addMessage("bot", "Hello! I'm here to help you with this survey. Let's start with the first question.");
-      setCurrentQuestionIndex(0);
-      askQuestion(0);
-      setIsBotTyping(false);
-    }, 1000);
+    setCurrentQuestionIndex(0);
+    
+    const firstQuestion = visibleQuestions[0];
+    if (!firstQuestion) {
+        addMessage("bot", "This survey has no questions!");
+        setIsBotTyping(false);
+        return;
+    }
+
+    const botResponse = await handleRespondToSurveyAnswer({
+        question: firstQuestion.text,
+        questionType: firstQuestion.type,
+        questionOptions: firstQuestion.options?.map(o => o.text),
+        answer: '',
+        isAnswerValid: true, // Mock valid for the first question
+        isLastQuestion: visibleQuestions.length === 1,
+        isFirstQuestion: true,
+    });
+    
+    addMessage("bot", botResponse.response);
+    setIsBotTyping(false);
   };
 
-  const askQuestion = (index: number) => {
+  const askQuestion = async (index: number) => {
     const questionToAsk = visibleQuestions[index];
     if (questionToAsk) {
-      addMessage("bot", questionToAsk.text);
+        const botResponse = await handleRespondToSurveyAnswer({
+            question: questionToAsk.text,
+            questionType: questionToAsk.type,
+            questionOptions: questionToAsk.options?.map(o => o.text),
+            answer: 'placeholder', // Previous answer was valid
+            isAnswerValid: true,
+            isLastQuestion: index >= visibleQuestions.length - 1,
+        });
+      addMessage("bot", botResponse.response);
     } else {
       addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
     }
@@ -108,37 +138,50 @@ export default function SurveyChatbot({
     setInputValue("");
     setIsBotTyping(true);
     
-    if (currentQuestion.type === 'yes-no' || currentQuestion.type === 'multiple-choice') {
-        const options = (currentQuestion.type === 'yes-no' ? ['Yes', 'No'] : currentQuestion.options?.map(o => o.text)) || [];
-        const matchedOption = options.find(opt => opt.toLowerCase() === userAnswer.toLowerCase().trim());
-        if (!matchedOption) {
-            const suggestion = `Please choose one of the following: ${options.join(', ')}.`;
-            const botResponse = await handleRespondToSurveyAnswer({
-                question: currentQuestion.text,
-                answer: userAnswer,
-                isAnswerValid: false,
-                validationSuggestion: suggestion,
-                isLastQuestion: false,
-            });
-            addMessage("bot", botResponse.response);
-            setIsBotTyping(false);
-            return;
+    // Special command handling
+    if (userAnswer.trim().toLowerCase() === 'submit') {
+        const isLastQuestionAnswered = currentQuestionIndex >= visibleQuestions.length;
+        if(isLastQuestionAnswered) {
+             await onSubmit();
+             addMessage("bot", "Your survey has been submitted successfully. Thank you for your time!");
+             setIsBotTyping(false);
+             setTimeout(() => setIsOpen(false), 2000);
+             return;
+        } else {
+             addMessage("bot", "Please answer all the questions before submitting.");
+             setIsBotTyping(false);
+             return;
         }
     }
-
 
     const validationResult = await handleValidateAnswer({
       question: currentQuestion.text,
       answer: userAnswer,
       expected_answers: currentQuestion.expected_answers
     });
+    
+    let answerToSave = userAnswer;
+    if (currentQuestion.type === 'yes-no' || currentQuestion.type === 'multiple-choice') {
+        const options = (currentQuestion.type === 'yes-no' ? ['Yes', 'No'] : currentQuestion.options?.map(o => o.text)) || [];
+        const matchedOption = options.find(opt => opt.toLowerCase() === userAnswer.toLowerCase().trim());
+        if (matchedOption) {
+            answerToSave = matchedOption; // Use the canonical option text
+        }
+    }
 
-    onAnswerChange(currentQuestion.originalId, userAnswer, currentQuestion.is_iterative, currentQuestion.iterationIndex);
+
+    if(validationResult.isValid) {
+      onAnswerChange(currentQuestion.originalId, answerToSave, currentQuestion.is_iterative, currentQuestion.iterationIndex);
+    }
 
     const isLastQuestion = currentQuestionIndex >= visibleQuestions.length - 1;
 
+    const nextQuestion = visibleQuestions[currentQuestionIndex + 1];
+
     const botResponse = await handleRespondToSurveyAnswer({
-      question: currentQuestion.text,
+      question: nextQuestion ? nextQuestion.text : currentQuestion.text,
+      questionType: nextQuestion ? nextQuestion.type : currentQuestion.type,
+      questionOptions: nextQuestion ? nextQuestion.options?.map(o => o.text) : undefined,
       answer: userAnswer,
       isAnswerValid: validationResult.isValid,
       validationSuggestion: validationResult.suggestion,
@@ -147,17 +190,10 @@ export default function SurveyChatbot({
     
     addMessage("bot", botResponse.response);
 
-    if (validationResult.isValid && !isLastQuestion) {
+    if (validationResult.isValid) {
       const nextIndex = currentQuestionIndex + 1;
       setCurrentQuestionIndex(nextIndex);
-      askQuestion(nextIndex);
     }
-    
-    if (userAnswer.toLowerCase() === 'submit' && isLastQuestion) {
-        await onSubmit();
-        addMessage("bot", "Your survey has been submitted. Thank you!");
-    }
-
 
     setIsBotTyping(false);
   };
