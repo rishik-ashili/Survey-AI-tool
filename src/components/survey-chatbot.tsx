@@ -50,15 +50,10 @@ export default function SurveyChatbot({
     const flatQuestions: ChatbotQuestion[] = [];
     const processQuestions = (qs: SurveyQuestion[]) => {
       for (const q of qs) {
-        if (q.is_iterative) {
-          // Add a placeholder for iterative questions. We will handle iterations dynamically.
-           flatQuestions.push({ ...q, originalId: q.id });
-        } else {
-           flatQuestions.push({ ...q, originalId: q.id });
-           if (q.sub_questions) {
-             processQuestions(q.sub_questions);
-           }
-        }
+        flatQuestions.push({ ...q, originalId: q.id });
+         if (q.sub_questions) {
+           processQuestions(q.sub_questions);
+         }
       }
     }
     processQuestions(questions);
@@ -255,9 +250,13 @@ export default function SurveyChatbot({
                   {messages.map(msg => (
                     <div key={msg.id} className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                       {msg.sender === 'bot' && <ChatbotAvatar className="h-8 w-8" />}
-                      <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${msg.sender === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
+                        className={`max-w-[75%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${msg.sender === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
                         {msg.text}
-                      </div>
+                      </motion.div>
                     </div>
                   ))}
                   {isBotTyping && (
