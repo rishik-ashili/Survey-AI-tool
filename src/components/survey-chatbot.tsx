@@ -96,7 +96,8 @@ export default function SurveyChatbot({
   };
 
   const addMessage = (sender: "user" | "bot", text: string) => {
-    setMessages(prev => [...prev, { id: Date.now().toString(), sender, text }]);
+    const newId = `${Date.now()}-${Math.random()}`;
+    setMessages(prev => [...prev, { id: newId, sender, text }]);
   };
 
   const handleUserInput = async () => {
