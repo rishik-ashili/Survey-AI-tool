@@ -108,7 +108,7 @@ export default function SurveyChatbot({
     setTimeout(() => {
         setIsBotTyping(false);
         if (question) {
-            let questionText = messages.length > 0 
+            let questionText = messages.length > 1  // After user's first answer
                 ? `Great, thanks! Next up: ${question.text}`
                 : `Welcome! I'm here to help you with the survey. Let's start with the first question.\n\n${question.text}`;
 
