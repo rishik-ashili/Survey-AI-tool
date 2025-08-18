@@ -17,6 +17,7 @@ import { Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { format } from 'date-fns';
 import { Separator } from './ui/separator';
+import PersonalizedAnswersDisplay from './personalized-answers-display';
 
 
 type SurveyResultsProps = {
@@ -38,26 +39,23 @@ type Submission = {
     questionText: string;
     answerValue: string;
   }[];
-  personalizedAnswers?: PersonalizedAnswer[];
 };
 
 const COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
 
 export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
   const [results, setResults] = useState<SurveyResult[]>([]);
-  const [personalizedResults, setPersonalizedResults] = useState<PersonalizedAnswer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
     const fetchResults = async () => {
       setIsLoading(true);
-      const { data, personalizedData, error } = await getSurveyResults(survey.id);
+      const { data, error } = await getSurveyResults(survey.id);
       if (error) {
         toast({ variant: "destructive", title: "Error", description: "Could not fetch survey results." });
       } else {
         setResults(data || []);
-        setPersonalizedResults(personalizedData || []);
       }
       setIsLoading(false);
     };
@@ -80,7 +78,6 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
           country: result.country,
           device_type: result.device_type,
           answers: [],
-          personalizedAnswers: [],
         };
       }
       acc[result.submission_id].answers.push({
@@ -91,17 +88,8 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
       return acc;
     }, {} as Record<string, Submission>);
     
-    // Merge personalized answers
-    if(personalizedResults.length > 0) {
-        personalizedResults.forEach(pAns => {
-            if (groupedBySubmission[pAns.submission_id]) {
-                groupedBySubmission[pAns.submission_id].personalizedAnswers?.push(pAns);
-            }
-        });
-    }
-
     return Object.values(groupedBySubmission).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [results, personalizedResults]);
+  }, [results]);
 
 
   const aggregatedResults = useMemo(() => {
@@ -323,25 +311,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                     </li>
                                 ))}
                                 </ul>
-                                {sub.personalizedAnswers && sub.personalizedAnswers.length > 0 && (
-                                    <>
-                                    <Separator className="my-4" />
-                                    <div className="space-y-4">
-                                        <h4 className="text-sm font-semibold flex items-center gap-2">
-                                            <Sparkles className="h-4 w-4 text-primary" />
-                                            Personalized Follow-up
-                                        </h4>
-                                        <ul className="space-y-4">
-                                        {sub.personalizedAnswers.map((pAns) => (
-                                            <li key={pAns.id} className="text-sm">
-                                                <strong className="font-medium">{pAns.question_text}</strong>
-                                                <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{pAns.answer_text}</p>
-                                            </li>
-                                        ))}
-                                        </ul>
-                                    </div>
-                                    </>
-                                )}
+                               {survey.has_personalized_questions && <PersonalizedAnswersDisplay submissionId={sub.id} />}
                             </div>
                         </CollapsibleContent>
                         </Collapsible>
@@ -355,5 +325,3 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     </div>
   );
 }
-
-    

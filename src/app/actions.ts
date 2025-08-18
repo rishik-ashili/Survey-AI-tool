@@ -387,7 +387,7 @@ export async function submitPersonalizedAnswers(
 }
 
 
-export async function getSurveyResults(surveyId: string): Promise<{data: SurveyResult[] | null, personalizedData: PersonalizedAnswer[] | null, error: string | null}> {
+export async function getSurveyResults(surveyId: string): Promise<{data: SurveyResult[] | null, error: string | null}> {
     const cookieStore = cookies()
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -404,29 +404,29 @@ export async function getSurveyResults(surveyId: string): Promise<{data: SurveyR
 
     if (error) {
         console.error("Error fetching survey results:", error);
-        return { data: null, personalizedData: null, error: error.message };
-    }
-    
-    // Get unique submission IDs from the results
-    const submissionIds = [...new Set(data.map(r => r.submission_id))];
-
-    // Fetch personalized answers for those submissions
-    let personalizedData: PersonalizedAnswer[] | null = null;
-    if (submissionIds.length > 0) {
-      const { data: pData, error: pError } = await supabase
-        .from('personalized_answers')
-        .select('*')
-        .in('submission_id', submissionIds);
-      
-      if (pError) {
-        console.error("Error fetching personalized answers:", pError);
-        // Continue without personalized data if this fails
-      } else {
-        personalizedData = pData;
-      }
+        return { data: null, error: error.message };
     }
 
-    return { data, personalizedData, error: null };
+    return { data, error: null };
 }
 
-    
+export async function getPersonalizedAnswers(submissionId: string): Promise<{data: PersonalizedAnswer[] | null, error: string | null}> {
+    const cookieStore = cookies();
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get: (name) => cookieStore.get(name)?.value } }
+    );
+
+    const { data, error } = await supabase
+        .from('personalized_answers')
+        .select('*')
+        .eq('submission_id', submissionId);
+
+    if (error) {
+        console.error("Error fetching personalized answers:", error);
+        return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+}
