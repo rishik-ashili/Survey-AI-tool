@@ -38,8 +38,10 @@ type Submission = {
     questionText: string;
     answerValue: string;
   }[];
+  personalizedAnswers?: PersonalizedAnswer[];
 };
 
+const COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
 
 export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
   const [results, setResults] = useState<SurveyResult[]>([]);
@@ -78,6 +80,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
           country: result.country,
           device_type: result.device_type,
           answers: [],
+          personalizedAnswers: [],
         };
       }
       acc[result.submission_id].answers.push({
@@ -88,8 +91,17 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
       return acc;
     }, {} as Record<string, Submission>);
     
+    // Merge personalized answers
+    if(personalizedResults.length > 0) {
+        personalizedResults.forEach(pAns => {
+            if (groupedBySubmission[pAns.submission_id]) {
+                groupedBySubmission[pAns.submission_id].personalizedAnswers?.push(pAns);
+            }
+        });
+    }
+
     return Object.values(groupedBySubmission).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [results]);
+  }, [results, personalizedResults]);
 
 
   const aggregatedResults = useMemo(() => {
@@ -289,9 +301,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
               <div>
                 <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><User />Individual Submissions</h3>
                 <div className="space-y-4">
-                  {submissions.map(sub => {
-                    const submissionPersonalizedAnswers = personalizedResults.filter(pr => pr.submission_id === sub.id);
-                    return (
+                  {submissions.map(sub => (
                         <Collapsible key={sub.id} className="border rounded-lg">
                         <CollapsibleTrigger className="w-full p-4 flex justify-between items-center cursor-pointer hover:bg-muted/50 rounded-t-lg data-[state=open]:bg-muted/50">
                             <div className="text-left">
@@ -313,7 +323,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                     </li>
                                 ))}
                                 </ul>
-                                {submissionPersonalizedAnswers.length > 0 && (
+                                {sub.personalizedAnswers && sub.personalizedAnswers.length > 0 && (
                                     <>
                                     <Separator className="my-4" />
                                     <div className="space-y-4">
@@ -322,7 +332,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                                             Personalized Follow-up
                                         </h4>
                                         <ul className="space-y-4">
-                                        {submissionPersonalizedAnswers.map((pAns) => (
+                                        {sub.personalizedAnswers.map((pAns) => (
                                             <li key={pAns.id} className="text-sm">
                                                 <strong className="font-medium">{pAns.question_text}</strong>
                                                 <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{pAns.answer_text}</p>
@@ -335,8 +345,7 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
                             </div>
                         </CollapsibleContent>
                         </Collapsible>
-                    );
-                  })}
+                    ))}
                 </div>
               </div>
             </div>
@@ -346,3 +355,5 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     </div>
   );
 }
+
+    
