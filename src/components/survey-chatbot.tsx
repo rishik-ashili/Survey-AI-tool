@@ -109,7 +109,6 @@ export default function SurveyChatbot({
 
   const startConversation = useCallback(() => {
     setMessages([]);
-    setCurrentQuestionIndex(-1); // Will be incremented to 0
     setIsBotTyping(true);
 
     if (visibleQuestions.length === 0) {
@@ -199,18 +198,16 @@ export default function SurveyChatbot({
     if(validationResult.isValid) {
       onAnswerChange(currentQuestion.originalId, answerToSave, currentQuestion.is_iterative, currentQuestion.iterationIndex);
       
-      const nextIndex = currentQuestionIndex + 1;
-      
-      // We need to wait for the state to update and the visibleQuestions to be recalculated
       setTimeout(() => {
-        // We need to access the latest state of visibleQuestions, so we do it via the setState callback
          setVisibleQuestions(currentVisibleQuestions => {
-            const finalNextIndex = Math.min(nextIndex, currentVisibleQuestions.length);
+            const nextIndex = currentVisibleQuestions.findIndex(q => q.originalId === currentQuestion.originalId && q.iterationIndex === currentQuestion.iterationIndex);
+            const finalNextIndex = Math.min(nextIndex + 1, currentVisibleQuestions.length);
+            
             setCurrentQuestionIndex(finalNextIndex);
             askQuestion(currentVisibleQuestions[finalNextIndex]);
             return currentVisibleQuestions;
         });
-      }, 500); // A small delay to allow React to re-render and for sub-questions to appear.
+      }, 500);
 
     } else {
         addMessage("bot", `I'm sorry, that doesn't seem like a valid answer. ${validationResult.suggestion}\n\nPlease try again.`);
