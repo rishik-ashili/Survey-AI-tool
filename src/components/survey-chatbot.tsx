@@ -205,8 +205,9 @@ export default function SurveyChatbot({
       setTimeout(() => {
         // We need to access the latest state of visibleQuestions, so we do it via the setState callback
          setVisibleQuestions(currentVisibleQuestions => {
-            setCurrentQuestionIndex(nextIndex);
-            askQuestion(currentVisibleQuestions[nextIndex]);
+            const finalNextIndex = Math.min(nextIndex, currentVisibleQuestions.length);
+            setCurrentQuestionIndex(finalNextIndex);
+            askQuestion(currentVisibleQuestions[finalNextIndex]);
             return currentVisibleQuestions;
         });
       }, 500); // A small delay to allow React to re-render and for sub-questions to appear.
