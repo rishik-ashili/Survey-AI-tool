@@ -108,18 +108,17 @@ export default function SurveyChatbot({
     setIsBotTyping(false);
   };
 
-  const askQuestion = async (index: number) => {
+  const askNextQuestion = (index: number) => {
     const questionToAsk = visibleQuestions[index];
     if (questionToAsk) {
-        const botResponse = await handleRespondToSurveyAnswer({
-            question: questionToAsk.text,
-            questionType: questionToAsk.type,
-            questionOptions: questionToAsk.options?.map(o => o.text),
-            answer: 'placeholder', // Previous answer was valid
-            isAnswerValid: true,
-            isLastQuestion: index >= visibleQuestions.length - 1,
-        });
-      addMessage("bot", botResponse.response);
+        let questionText = `Great, thanks! Next question: ${questionToAsk.text}`;
+        if (questionToAsk.options && questionToAsk.options.length > 0) {
+            const optionsList = questionToAsk.options.map(o => o.text).join(", ");
+            questionText += ` Your options are: ${optionsList}.`;
+        } else if(questionToAsk.type === 'yes-no') {
+            questionText += ` Please answer with 'Yes' or 'No'.`;
+        }
+      addMessage("bot", questionText);
     } else {
       addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
     }
@@ -169,32 +168,25 @@ export default function SurveyChatbot({
         }
     }
 
-
     if(validationResult.isValid) {
       onAnswerChange(currentQuestion.originalId, answerToSave, currentQuestion.is_iterative, currentQuestion.iterationIndex);
-    }
-
-    const isLastQuestion = currentQuestionIndex >= visibleQuestions.length - 1;
-
-    const nextQuestion = visibleQuestions[currentQuestionIndex + 1];
-
-    const botResponse = await handleRespondToSurveyAnswer({
-      question: nextQuestion ? nextQuestion.text : currentQuestion.text,
-      questionType: nextQuestion ? nextQuestion.type : currentQuestion.type,
-      questionOptions: nextQuestion ? nextQuestion.options?.map(o => o.text) : undefined,
-      answer: userAnswer,
-      isAnswerValid: validationResult.isValid,
-      validationSuggestion: validationResult.suggestion,
-      isLastQuestion,
-    });
-    
-    addMessage("bot", botResponse.response);
-
-    if (validationResult.isValid) {
       const nextIndex = currentQuestionIndex + 1;
       setCurrentQuestionIndex(nextIndex);
-    }
+      askNextQuestion(nextIndex);
 
+    } else {
+        const botResponse = await handleRespondToSurveyAnswer({
+            question: currentQuestion.text,
+            questionType: currentQuestion.type,
+            questionOptions: currentQuestion.options?.map(o => o.text),
+            answer: userAnswer,
+            isAnswerValid: false,
+            validationSuggestion: validationResult.suggestion,
+            isLastQuestion: currentQuestionIndex >= visibleQuestions.length - 1
+        });
+        addMessage("bot", botResponse.response);
+    }
+    
     setIsBotTyping(false);
   };
 

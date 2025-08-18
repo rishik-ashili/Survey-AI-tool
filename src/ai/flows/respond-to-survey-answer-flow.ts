@@ -57,7 +57,7 @@ const respondToSurveyAnswerPrompt = ai.definePrompt({
     User's Answer: "{{answer}}"
     {{#if isAnswerValid}}
       The user's answer was valid.
-      - Acknowledge their answer briefly and positively.
+      - Acknowledge their answer briefly and positively (e.g., "Got it.", "Okay, thanks!").
       - Then, introduce the next question clearly.
       - If the next question has options, list them.
     {{else}}
