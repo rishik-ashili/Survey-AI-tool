@@ -45,26 +45,29 @@ const respondToSurveyAnswerPrompt = ai.definePrompt({
   Current Question: "{{question}}"
   Question Type: "{{questionType}}"
   {{#if questionOptions}}
-  Available Options: {{json questionOptions}}
+  Available Options:
+  {{#each questionOptions}}
+  - {{add @index 1}}. {{this}}
+  {{/each}}
   {{/if}}
-  
+
   {{#if isFirstQuestion}}
     This is the first question.
     - Start with a friendly welcome message.
     - Then, clearly present the first question.
-    - If it has options, list them for the user so they know how to answer.
+    - If it has options, list them with numbers so the user knows they can type the number or the text.
   {{else}}
     User's Answer: "{{answer}}"
     {{#if isAnswerValid}}
       The user's answer was valid.
       - Acknowledge their answer briefly and positively (e.g., "Got it.", "Okay, thanks!").
       - Then, introduce the next question clearly.
-      - If the next question has options, list them.
+      - If the next question has options, list them with numbers.
     {{else}}
       The user's answer was invalid.
       - Gently inform them that their answer isn't quite right.
       - Provide the helpful suggestion: "{{validationSuggestion}}"
-      - Re-ask the original question clearly, making sure to include the options if available.
+      - Re-ask the original question clearly, making sure to include the numbered options if available.
     {{/if}}
   {{/if}}
 

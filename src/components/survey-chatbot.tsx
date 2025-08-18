@@ -47,29 +47,31 @@ export default function SurveyChatbot({
 
   const visibleQuestions = questions.flatMap(q => {
     if (!isQuestionVisible(q)) return [];
+    const baseQuestion = { ...q, originalId: q.id };
     if (q.is_iterative) {
       const count = getIterationCount(q);
-      return Array.from({ length: count }, (_, i) => ({ ...q, originalId: q.id, iterationIndex: i, text: `${q.text} (Entry ${i + 1})`}));
+      return Array.from({ length: count }, (_, i) => ({ ...baseQuestion, iterationIndex: i, text: `${q.text} (Entry ${i + 1})`}));
     }
-    const { sub_questions, ...rest } = q;
-    const allQuestions = [{ ...rest, originalId: q.id }];
-    if (sub_questions) {
-      sub_questions.forEach(sq => {
+    const allQuestions: any[] = [{ ...baseQuestion }];
+    if (q.sub_questions) {
+      q.sub_questions.forEach(sq => {
         if(isQuestionVisible(sq)) {
           allQuestions.push({ ...sq, originalId: sq.id });
         }
       })
     }
     return allQuestions;
-  });
+  }).map((q, index) => ({...q, globalIndex: index}));
 
-  const currentQuestion = visibleQuestions[currentQuestionIndex];
+
+  const currentQuestion = visibleQuestions.find(q => q.globalIndex === currentQuestionIndex);
+
 
   useEffect(() => {
     if (isOpen && messages.length === 0) {
       startConversation();
     }
-  }, [isOpen]);
+  }, [isOpen, visibleQuestions]); // Depend on visibleQuestions to restart if they change
   
   useEffect(() => {
       // Auto scroll to bottom when new messages are added
@@ -111,12 +113,18 @@ export default function SurveyChatbot({
   const askNextQuestion = (index: number) => {
     const questionToAsk = visibleQuestions[index];
     if (questionToAsk) {
-        let questionText = `Great, thanks! Next question: ${questionToAsk.text}`;
-        if (questionToAsk.options && questionToAsk.options.length > 0) {
-            const optionsList = questionToAsk.options.map(o => o.text).join(", ");
-            questionText += ` Your options are: ${optionsList}.`;
-        } else if(questionToAsk.type === 'yes-no') {
-            questionText += ` Please answer with 'Yes' or 'No'.`;
+        let questionText = `Great, thanks! Next up: ${questionToAsk.text}`;
+        
+        let options: string[] = [];
+        if (questionToAsk.type === 'yes-no') {
+            options = ['Yes', 'No'];
+        } else if (questionToAsk.options) {
+            options = questionToAsk.options.map(o => o.text);
+        }
+
+        if (options.length > 0) {
+            const optionsList = options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
+            questionText += `\nYour options are:\n${optionsList}`;
         }
       addMessage("bot", questionText);
     } else {
@@ -153,26 +161,34 @@ export default function SurveyChatbot({
         }
     }
 
+    let answerToSave = userAnswer;
+    const numericAnswer = parseInt(userAnswer.trim(), 10);
+
+    if (!isNaN(numericAnswer) && (currentQuestion.type.startsWith('multiple-choice') || currentQuestion.type === 'yes-no')) {
+      const options = currentQuestion.type === 'yes-no'
+        ? ['Yes', 'No']
+        : currentQuestion.options?.map(o => o.text) || [];
+      
+      if (numericAnswer > 0 && numericAnswer <= options.length) {
+        answerToSave = options[numericAnswer - 1];
+      }
+    }
+
     const validationResult = await handleValidateAnswer({
       question: currentQuestion.text,
-      answer: userAnswer,
+      answer: answerToSave,
       expected_answers: currentQuestion.expected_answers
     });
     
-    let answerToSave = userAnswer;
-    if (currentQuestion.type === 'yes-no' || currentQuestion.type === 'multiple-choice') {
-        const options = (currentQuestion.type === 'yes-no' ? ['Yes', 'No'] : currentQuestion.options?.map(o => o.text)) || [];
-        const matchedOption = options.find(opt => opt.toLowerCase() === userAnswer.toLowerCase().trim());
-        if (matchedOption) {
-            answerToSave = matchedOption; // Use the canonical option text
-        }
-    }
-
     if(validationResult.isValid) {
       onAnswerChange(currentQuestion.originalId, answerToSave, currentQuestion.is_iterative, currentQuestion.iterationIndex);
       const nextIndex = currentQuestionIndex + 1;
       setCurrentQuestionIndex(nextIndex);
-      askNextQuestion(nextIndex);
+      if (nextIndex < visibleQuestions.length) {
+        askNextQuestion(nextIndex);
+      } else {
+         addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
+      }
 
     } else {
         const botResponse = await handleRespondToSurveyAnswer({
@@ -227,7 +243,7 @@ export default function SurveyChatbot({
                   {messages.map(msg => (
                     <div key={msg.id} className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                       {msg.sender === 'bot' && <ChatbotAvatar className="h-8 w-8" />}
-                      <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${msg.sender === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
+                      <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${msg.sender === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
                         {msg.text}
                       </div>
                     </div>
