@@ -7,6 +7,7 @@ import { generateSurvey, type GenerateSurveyInput, type GenerateSurveyOutput } f
 import { validateAnswer, type ValidateAnswerInput, type ValidateAnswerOutput } from "@/ai/flows/validate-answer-flow";
 import { shouldAskQuestion, type ShouldAskQuestionInput, type ShouldAskQuestionOutput } from "@/ai/flows/should-ask-question-flow";
 import { generatePersonalizedQuestions, type GeneratePersonalizedQuestionsInput, type GeneratePersonalizedQuestionsOutput } from "@/ai/flows/generate-personalized-questions-flow";
+import { respondToSurveyAnswer, type RespondToSurveyAnswerInput, type RespondToSurveyAnswerOutput } from "@/ai/flows/respond-to-survey-answer-flow";
 import type { SavedSurvey, SurveyQuestion, SurveyResult, SubmissionMetadata, PersonalizedAnswer } from "@/types";
 
 export async function handleGenerateSurvey(input: GenerateSurveyInput): Promise<GenerateSurveyOutput> {
@@ -32,6 +33,16 @@ export async function handleValidateAnswer(input: ValidateAnswerInput): Promise<
         return { isValid: true, suggestion: "Could not validate answer. Please try again." }; 
     }
 }
+
+export async function handleRespondToSurveyAnswer(input: RespondToSurveyAnswerInput): Promise<RespondToSurveyAnswerOutput> {
+    try {
+        return await respondToSurveyAnswer(input);
+    } catch (error) {
+        console.error("Error calling respondToSurveyAnswer flow:", error);
+        return { response: "I seem to be having trouble. Let's move to the next question." };
+    }
+}
+
 
 export async function handleShouldAskQuestion(input: ShouldAskQuestionInput): Promise<ShouldAskQuestionOutput> {
     try {

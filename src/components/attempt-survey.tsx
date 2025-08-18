@@ -16,6 +16,7 @@ import { Checkbox } from './ui/checkbox';
 import { submitSurvey, handleValidateAnswer, handleGeneratePersonalizedQuestions, submitPersonalizedAnswers } from '@/app/actions';
 import { Separator } from './ui/separator';
 import { useIsMobile } from '@/hooks/use-mobile';
+import SurveyChatbot from './survey-chatbot';
 
 
 type AttemptSurveyProps = {
@@ -249,8 +250,8 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     setIsSubmitting(false);
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!isValidated) {
         toast({ variant: "destructive", title: "Not Validated", description: "Please validate your answers before submitting." });
         return;
@@ -425,6 +426,9 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     )
   }
 
+  const allQuestions = Array.from(questionMap.values());
+
+
   return (
     <div className="space-y-6">
        <Button onClick={onBack} variant="ghost" className="mb-4">
@@ -441,7 +445,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
             </span>
           </CardDescription>
         </CardHeader>
-        <form>
+        <form onSubmit={handleSubmit}>
             <CardContent className="space-y-6">
               {survey.questions.map((q, i) => renderQuestion(q, i))}
 
@@ -470,7 +474,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                         {isSubmitting ? 'Validating...' : 'Validate Answers'}
                     </Button>
                  ) : (
-                    <Button onClick={handleSubmit} className="w-full" size="lg" disabled={isSubmitting}>
+                    <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
                         {isSubmitting ? <Loader2 className="mr-2 animate-spin" /> : <Send className="mr-2"/>}
                         {isSubmitting ? 'Submitting...' : 'Submit Survey'}
                     </Button>
@@ -478,8 +482,14 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
             </CardFooter>
         </form>
       </Card>
+      <SurveyChatbot 
+        questions={allQuestions}
+        onAnswerChange={handleAnswerChange}
+        onSubmit={handleSubmit}
+        currentAnswers={answers}
+        isQuestionVisible={isQuestionVisible}
+        getIterationCount={getIterationCount}
+      />
     </div>
   );
 }
-
-    
