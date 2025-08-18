@@ -66,6 +66,9 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
   }, [survey.id, toast]);
 
   const submissions = useMemo(() => {
+    if (!results || results.length === 0) {
+        return [];
+    }
     // Step 1: Group main answers by submission_id
     const groupedBySubmission = results.reduce((acc, result) => {
       if (!acc[result.submission_id]) {
@@ -96,19 +99,10 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
         groupedBySubmission[pAns.submission_id].personalizedAnswers.push(pAns);
       }
     });
-
-    // Step 3: Sort answers within each submission
-    Object.values(groupedBySubmission).forEach(submission => {
-        submission.answers.sort((a, b) => {
-            const qA_index = survey.questions.findIndex(q => q.id === a.questionId);
-            const qB_index = survey.questions.findIndex(q => q.id === b.questionId);
-            return qA_index - qB_index;
-        });
-    });
     
-    // Step 4: Return sorted array of submissions
+    // Step 3: Return sorted array of submissions
     return Object.values(groupedBySubmission).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [results, personalizedResults, survey.questions]);
+  }, [results, personalizedResults]);
 
 
   const aggregatedResults = useMemo(() => {
@@ -362,3 +356,5 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
     </div>
   );
 }
+
+    
