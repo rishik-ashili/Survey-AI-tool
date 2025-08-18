@@ -1,14 +1,14 @@
 
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
-import { Bot, Send, Loader2, X, CornerDownLeft } from "lucide-react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { Bot, Send, Loader2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { SurveyQuestion } from "@/types";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "./ui/card";
 import { Textarea } from "./ui/textarea";
-import { handleRespondToSurveyAnswer, handleValidateAnswer } from "@/app/actions";
+import { handleValidateAnswer } from "@/app/actions";
 import { ScrollArea } from "./ui/scroll-area";
 import ChatbotAvatar from "./chatbot-avatar";
 import { useToast } from "@/hooks/use-toast";
@@ -18,6 +18,12 @@ type Message = {
   text: string;
   sender: "user" | "bot";
 };
+
+type ChatbotQuestion = SurveyQuestion & {
+    originalId: string;
+    globalIndex: number;
+    iterationIndex?: number;
+}
 
 type SurveyChatbotProps = {
   questions: SurveyQuestion[];
@@ -45,35 +51,97 @@ export default function SurveyChatbot({
   const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  const visibleQuestions = useMemo(() => {
-    return questions.flatMap(q => {
-      if (!isQuestionVisible(q)) return [];
-      const baseQuestion = { ...q, originalId: q.id };
-      if (q.is_iterative) {
-        const count = getIterationCount(q);
-        return Array.from({ length: count }, (_, i) => ({ ...baseQuestion, iterationIndex: i, text: `${q.text} (Entry ${i + 1})`}));
-      }
-      const allQuestions: any[] = [{ ...baseQuestion }];
-      if (q.sub_questions) {
-        q.sub_questions.forEach(sq => {
-          if(isQuestionVisible(sq)) {
-            allQuestions.push({ ...sq, originalId: sq.id });
+   const visibleQuestions = useMemo(() => {
+    const flatQuestions: Omit<ChatbotQuestion, 'globalIndex'>[] = [];
+    const processQuestions = (qs: SurveyQuestion[]) => {
+      for (const q of qs) {
+        if (isQuestionVisible(q)) {
+          const iterationCount = getIterationCount(q);
+          if (q.is_iterative && iterationCount > 0) {
+            for (let i = 0; i < iterationCount; i++) {
+              flatQuestions.push({ ...q, originalId: q.id, text: `${q.text} (Entry ${i + 1})`, iterationIndex: i });
+            }
+          } else {
+            flatQuestions.push({ ...q, originalId: q.id });
+            if (q.sub_questions) {
+              processQuestions(q.sub_questions);
+            }
           }
-        })
+        }
       }
-      return allQuestions;
-    }).map((q, index) => ({...q, globalIndex: index}));
-  }, [questions, isQuestionVisible, getIterationCount, currentAnswers]); // Depend on currentAnswers too for visibility updates
+    }
+    processQuestions(questions);
+    return flatQuestions.map((q, index) => ({ ...q, globalIndex: index }));
+  }, [questions, isQuestionVisible, getIterationCount, currentAnswers]);
 
 
-  const currentQuestion = visibleQuestions.find(q => q.globalIndex === currentQuestionIndex);
+  const currentQuestion = useMemo(() => {
+    return visibleQuestions.find(q => q.globalIndex === currentQuestionIndex);
+  }, [visibleQuestions, currentQuestionIndex]);
 
+  const addMessage = useCallback((sender: "user" | "bot", text: string) => {
+    const newId = `${Date.now()}-${Math.random()}`;
+    setMessages(prev => [...prev, { id: newId, sender, text }]);
+  }, []);
+
+
+  const askQuestion = useCallback((question?: ChatbotQuestion) => {
+    setIsBotTyping(false);
+    if (question) {
+        let questionText = `Great, thanks! Next up: ${question.text}`;
+        
+        let options: string[] = [];
+         if (question.type === 'yes-no') {
+            options = ['Yes', 'No'];
+        } else if (question.options) {
+            options = question.options.map(o => o.text);
+        }
+
+        if (options.length > 0) {
+            const optionsList = options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
+            questionText += `\nYour options are:\n${optionsList}`;
+        }
+      addMessage("bot", questionText);
+    } else {
+      addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
+    }
+  }, [addMessage]);
+
+  const startConversation = useCallback(() => {
+    setMessages([]);
+    setCurrentQuestionIndex(-1);
+    setIsBotTyping(true);
+
+    if (visibleQuestions.length === 0) {
+        addMessage("bot", "This survey has no questions!");
+        setIsBotTyping(false);
+        return;
+    }
+
+    let questionText = `Welcome! I'm here to help you with the survey. Let's start with the first question.\n\n${visibleQuestions[0].text}`;
+    let options: string[] = [];
+    if (visibleQuestions[0].type === 'yes-no') {
+        options = ['Yes', 'No'];
+    } else if (visibleQuestions[0].options) {
+        options = visibleQuestions[0].options.map(o => o.text);
+    }
+    
+    if (options.length > 0) {
+        const optionsList = options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
+        questionText += `\nYour options are:\n${optionsList}`;
+    }
+
+    addMessage("bot", questionText);
+    setCurrentQuestionIndex(0);
+    setIsBotTyping(false);
+
+  }, [addMessage, visibleQuestions]);
 
   useEffect(() => {
     if (isOpen && messages.length === 0 && visibleQuestions.length > 0) {
       startConversation();
     }
-  }, [isOpen, visibleQuestions]);
+  }, [isOpen, visibleQuestions, messages.length, startConversation]);
   
   useEffect(() => {
       // Auto scroll to bottom when new messages are added
@@ -85,59 +153,6 @@ export default function SurveyChatbot({
       }
   }, [messages]);
 
-
-  const startConversation = async () => {
-    setIsBotTyping(true);
-    setMessages([]);
-    setCurrentQuestionIndex(0);
-    
-    const firstQuestion = visibleQuestions[0];
-    if (!firstQuestion) {
-        addMessage("bot", "This survey has no questions!");
-        setIsBotTyping(false);
-        return;
-    }
-
-    const botResponse = await handleRespondToSurveyAnswer({
-        question: firstQuestion.text,
-        questionType: firstQuestion.type,
-        questionOptions: firstQuestion.type === 'yes-no' ? ['Yes', 'No'] : firstQuestion.options?.map(o => o.text),
-        answer: '',
-        isAnswerValid: true, // Mock valid for the first question
-        isLastQuestion: visibleQuestions.length === 1,
-        isFirstQuestion: true,
-    });
-    
-    addMessage("bot", botResponse.response);
-    setIsBotTyping(false);
-  };
-
-  const askNextQuestion = (index: number) => {
-    const questionToAsk = visibleQuestions[index];
-    if (questionToAsk) {
-        let questionText = `Great, thanks! Next up: ${questionToAsk.text}`;
-        
-        let options: string[] = [];
-        if (questionToAsk.type === 'yes-no') {
-            options = ['Yes', 'No'];
-        } else if (questionToAsk.options) {
-            options = questionToAsk.options.map(o => o.text);
-        }
-
-        if (options.length > 0) {
-            const optionsList = options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
-            questionText += `\nYour options are:\n${optionsList}`;
-        }
-      addMessage("bot", questionText);
-    } else {
-      addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
-    }
-  };
-
-  const addMessage = (sender: "user" | "bot", text: string) => {
-    const newId = `${Date.now()}-${Math.random()}`;
-    setMessages(prev => [...prev, { id: newId, sender, text }]);
-  };
 
   const handleUserInput = async () => {
     if (!inputValue.trim() || !currentQuestion) return;
@@ -184,33 +199,15 @@ export default function SurveyChatbot({
     
     if(validationResult.isValid) {
       onAnswerChange(currentQuestion.originalId, answerToSave, currentQuestion.is_iterative, currentQuestion.iterationIndex);
-      const nextIndex = currentQuestionIndex + 1;
       
-      const botResponse = await handleRespondToSurveyAnswer({
-          question: visibleQuestions[nextIndex]?.text || '',
-          questionType: visibleQuestions[nextIndex]?.type || '',
-          questionOptions: visibleQuestions[nextIndex]?.type === 'yes-no' ? ['Yes', 'No'] : visibleQuestions[nextIndex]?.options?.map(o => o.text),
-          answer: userAnswer, // The user's last valid answer
-          isAnswerValid: true,
-          isLastQuestion: nextIndex >= visibleQuestions.length
-      });
-      addMessage("bot", botResponse.response);
+      const nextIndex = currentQuestionIndex + 1;
       setCurrentQuestionIndex(nextIndex);
+      askQuestion(visibleQuestions[nextIndex]);
 
     } else {
-        const botResponse = await handleRespondToSurveyAnswer({
-            question: currentQuestion.text,
-            questionType: currentQuestion.type,
-            questionOptions: currentQuestion.type === 'yes-no' ? ['Yes', 'No'] : currentQuestion.options?.map(o => o.text),
-            answer: userAnswer,
-            isAnswerValid: false,
-            validationSuggestion: validationResult.suggestion,
-            isLastQuestion: currentQuestionIndex >= visibleQuestions.length - 1
-        });
-        addMessage("bot", botResponse.response);
+        addMessage("bot", `I'm sorry, that doesn't seem like a valid answer. ${validationResult.suggestion}\n\nPlease try again.`);
+        setIsBotTyping(false);
     }
-    
-    setIsBotTyping(false);
   };
 
   if (!isOpen) {
