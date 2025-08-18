@@ -66,19 +66,22 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
   }, [survey.id, toast]);
 
   const submissions = useMemo(() => {
-    const grouped = results.reduce((acc, result) => {
-      acc[result.submission_id] = acc[result.submission_id] || {
-        id: result.submission_id,
-        userName: result.user_name || 'Anonymous',
-        createdAt: result.submission_created_at,
-        latitude: result.latitude,
-        longitude: result.longitude,
-        city: result.city,
-        country: result.country,
-        device_type: result.device_type,
-        answers: [],
-        personalizedAnswers: [], // Initialize personalized answers
-      };
+    // Step 1: Group main answers by submission_id
+    const groupedBySubmission = results.reduce((acc, result) => {
+      if (!acc[result.submission_id]) {
+        acc[result.submission_id] = {
+          id: result.submission_id,
+          userName: result.user_name || 'Anonymous',
+          createdAt: result.submission_created_at,
+          latitude: result.latitude,
+          longitude: result.longitude,
+          city: result.city,
+          country: result.country,
+          device_type: result.device_type,
+          answers: [],
+          personalizedAnswers: [], // Initialize personalized answers array
+        };
+      }
       acc[result.submission_id].answers.push({
         questionId: result.question_id,
         questionText: result.question_text,
@@ -86,24 +89,27 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
       });
       return acc;
     }, {} as Record<string, Submission>);
-    
-    // Add personalized answers to the corresponding submission
+
+    // Step 2: Add personalized answers to the corresponding submission
     personalizedResults.forEach(pAns => {
-      if (grouped[pAns.submission_id]) {
-        grouped[pAns.submission_id].personalizedAnswers.push(pAns);
+      if (groupedBySubmission[pAns.submission_id]) {
+        groupedBySubmission[pAns.submission_id].personalizedAnswers.push(pAns);
       }
     });
 
-    Object.values(grouped).forEach(submission => {
+    // Step 3: Sort answers within each submission
+    Object.values(groupedBySubmission).forEach(submission => {
         submission.answers.sort((a, b) => {
             const qA_index = survey.questions.findIndex(q => q.id === a.questionId);
             const qB_index = survey.questions.findIndex(q => q.id === b.questionId);
             return qA_index - qB_index;
         });
     });
-
-    return Object.values(grouped).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    // Step 4: Return sorted array of submissions
+    return Object.values(groupedBySubmission).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [results, personalizedResults, survey.questions]);
+
 
   const aggregatedResults = useMemo(() => {
     return survey.questions.map(question => {
