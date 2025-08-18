@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Bot, Send, Loader2, X, CornerDownLeft } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { SurveyQuestion } from "@/types";
@@ -45,33 +45,35 @@ export default function SurveyChatbot({
   const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  const visibleQuestions = questions.flatMap(q => {
-    if (!isQuestionVisible(q)) return [];
-    const baseQuestion = { ...q, originalId: q.id };
-    if (q.is_iterative) {
-      const count = getIterationCount(q);
-      return Array.from({ length: count }, (_, i) => ({ ...baseQuestion, iterationIndex: i, text: `${q.text} (Entry ${i + 1})`}));
-    }
-    const allQuestions: any[] = [{ ...baseQuestion }];
-    if (q.sub_questions) {
-      q.sub_questions.forEach(sq => {
-        if(isQuestionVisible(sq)) {
-          allQuestions.push({ ...sq, originalId: sq.id });
-        }
-      })
-    }
-    return allQuestions;
-  }).map((q, index) => ({...q, globalIndex: index}));
+  const visibleQuestions = useMemo(() => {
+    return questions.flatMap(q => {
+      if (!isQuestionVisible(q)) return [];
+      const baseQuestion = { ...q, originalId: q.id };
+      if (q.is_iterative) {
+        const count = getIterationCount(q);
+        return Array.from({ length: count }, (_, i) => ({ ...baseQuestion, iterationIndex: i, text: `${q.text} (Entry ${i + 1})`}));
+      }
+      const allQuestions: any[] = [{ ...baseQuestion }];
+      if (q.sub_questions) {
+        q.sub_questions.forEach(sq => {
+          if(isQuestionVisible(sq)) {
+            allQuestions.push({ ...sq, originalId: sq.id });
+          }
+        })
+      }
+      return allQuestions;
+    }).map((q, index) => ({...q, globalIndex: index}));
+  }, [questions, isQuestionVisible, getIterationCount, currentAnswers]); // Depend on currentAnswers too for visibility updates
 
 
   const currentQuestion = visibleQuestions.find(q => q.globalIndex === currentQuestionIndex);
 
 
   useEffect(() => {
-    if (isOpen && messages.length === 0) {
+    if (isOpen && messages.length === 0 && visibleQuestions.length > 0) {
       startConversation();
     }
-  }, [isOpen, visibleQuestions]); // Depend on visibleQuestions to restart if they change
+  }, [isOpen, visibleQuestions]);
   
   useEffect(() => {
       // Auto scroll to bottom when new messages are added
@@ -99,7 +101,7 @@ export default function SurveyChatbot({
     const botResponse = await handleRespondToSurveyAnswer({
         question: firstQuestion.text,
         questionType: firstQuestion.type,
-        questionOptions: firstQuestion.options?.map(o => o.text),
+        questionOptions: firstQuestion.type === 'yes-no' ? ['Yes', 'No'] : firstQuestion.options?.map(o => o.text),
         answer: '',
         isAnswerValid: true, // Mock valid for the first question
         isLastQuestion: visibleQuestions.length === 1,
@@ -183,18 +185,23 @@ export default function SurveyChatbot({
     if(validationResult.isValid) {
       onAnswerChange(currentQuestion.originalId, answerToSave, currentQuestion.is_iterative, currentQuestion.iterationIndex);
       const nextIndex = currentQuestionIndex + 1;
+      
+      const botResponse = await handleRespondToSurveyAnswer({
+          question: visibleQuestions[nextIndex]?.text || '',
+          questionType: visibleQuestions[nextIndex]?.type || '',
+          questionOptions: visibleQuestions[nextIndex]?.type === 'yes-no' ? ['Yes', 'No'] : visibleQuestions[nextIndex]?.options?.map(o => o.text),
+          answer: userAnswer, // The user's last valid answer
+          isAnswerValid: true,
+          isLastQuestion: nextIndex >= visibleQuestions.length
+      });
+      addMessage("bot", botResponse.response);
       setCurrentQuestionIndex(nextIndex);
-      if (nextIndex < visibleQuestions.length) {
-        askNextQuestion(nextIndex);
-      } else {
-         addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
-      }
 
     } else {
         const botResponse = await handleRespondToSurveyAnswer({
             question: currentQuestion.text,
             questionType: currentQuestion.type,
-            questionOptions: currentQuestion.options?.map(o => o.text),
+            questionOptions: currentQuestion.type === 'yes-no' ? ['Yes', 'No'] : currentQuestion.options?.map(o => o.text),
             answer: userAnswer,
             isAnswerValid: false,
             validationSuggestion: validationResult.suggestion,
