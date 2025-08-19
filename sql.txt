@@ -250,7 +250,5 @@ ALTER TABLE personalized_answers ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Anyone can create personalized answers." ON personalized_answers
   FOR INSERT WITH CHECK (true);
 
--- Personalized answers should not be public by default.
--- If they need to be viewed, a more restrictive policy should be created.
--- For now, only the creator can see them, which is no one since there's no auth.
--- This means they are effectively write-only for now.
+CREATE POLICY "Anyone can read personalized answers." ON personalized_answers
+  FOR SELECT USING (true);

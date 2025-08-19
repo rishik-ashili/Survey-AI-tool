@@ -578,6 +578,8 @@ export async function handleGenerateSurveyInsights(surveyId: string): Promise<{ 
 }
 
 export async function getPersonalizedAnswers(submissionId: string): Promise<{ data: PersonalizedAnswer[] | null, error: string | null }> {
+    console.log('getPersonalizedAnswers called with submissionId:', submissionId);
+
     const cookieStore = cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -585,10 +587,13 @@ export async function getPersonalizedAnswers(submissionId: string): Promise<{ da
         { cookies: { get: (name) => cookieStore.get(name)?.value } }
     );
 
+    console.log('Querying personalized_answers for submission_id:', submissionId);
     const { data, error } = await supabase
         .from('personalized_answers')
         .select('*')
         .eq('submission_id', submissionId);
+
+    console.log('Personalized answers query result:', { data, error, count: data?.length });
 
     if (error) {
         console.error("Error fetching personalized answers:", error);
