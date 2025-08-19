@@ -11,6 +11,9 @@ import { Textarea } from "./ui/textarea";
 import { handleValidateAnswer } from "@/app/actions";
 import { ScrollArea } from "./ui/scroll-area";
 import ChatbotAvatar from "./chatbot-avatar";
+import { useLanguage } from '@/contexts/language-context';
+import TranslatableText from './translatable-text';
+import { useLiveTranslation } from '@/hooks/use-live-translation';
 
 type Message = {
   id: string;
@@ -40,6 +43,7 @@ export default function SurveyChatbot({
   isQuestionVisible,
   getIterationCount
 }: SurveyChatbotProps) {
+  const { t, language } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -94,6 +98,7 @@ export default function SurveyChatbot({
 
   const addMessage = useCallback((sender: "user" | "bot", text: string) => {
     const newId = `${Date.now()}-${Math.random()}`;
+    // Store original text - translation will be handled by the UI component
     setMessages(prev => [...prev, { id: newId, sender, text }]);
   }, []);
 
@@ -352,7 +357,7 @@ export default function SurveyChatbot({
           const optionsList = options.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
           questionText += `\n\nYour options are:\n${optionsList}`;
         }
-        addMessage("bot", questionText);
+        addMessage("bot", question.text);
         setCurrentQuestion(question);
 
         // Speak the question if voice mode is enabled
@@ -363,7 +368,7 @@ export default function SurveyChatbot({
           }, 300);
         }
       } else {
-        addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
+        addMessage("bot", t('chatbot.thankYou'));
         setCurrentQuestion(null);
       }
     }, 500);
@@ -371,9 +376,16 @@ export default function SurveyChatbot({
 
   const startConversation = useCallback(() => {
     setMessages([]);
-    const firstQuestion = findNextQuestion();
-    askQuestion(firstQuestion);
-  }, [askQuestion, findNextQuestion]);
+
+    // Add welcome message
+    addMessage("bot", t('chatbot.hello'));
+
+    // Start the survey after a short delay
+    setTimeout(() => {
+      const firstQuestion = findNextQuestion();
+      askQuestion(firstQuestion);
+    }, 1000);
+  }, [askQuestion, findNextQuestion, addMessage, t]);
 
   useEffect(() => {
     if (isOpen) {
@@ -402,7 +414,7 @@ export default function SurveyChatbot({
     if (userAnswer.toLowerCase() === 'submit') {
       if (!currentQuestion) {
         await onSubmit();
-        addMessage("bot", "Your survey has been submitted successfully. Thank you for your time!");
+        addMessage("bot", t('chatbot.thankYou'));
         setIsBotTyping(false);
         setTimeout(() => setIsOpen(false), 2000);
         return;
@@ -533,7 +545,7 @@ export default function SurveyChatbot({
           setTimeout(findNextQuestionWithPolling, 200);
         } else {
           // If we still can't find a question, assume we're done
-          addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
+          addMessage("bot", t('chatbot.thankYou'));
           setCurrentQuestion(null);
           setIsBotTyping(false);
         }
@@ -543,7 +555,7 @@ export default function SurveyChatbot({
       setTimeout(findNextQuestionWithPolling, 100);
 
     } else {
-      addMessage("bot", `I'm sorry, that doesn't seem like a valid answer. ${validationResult.suggestion}\n\nPlease try again.`);
+      addMessage("bot", t('chatbot.invalidAnswer'));
       setIsBotTyping(false);
     }
   };
@@ -608,7 +620,7 @@ export default function SurveyChatbot({
             <CardHeader className="flex flex-row items-center justify-between p-4 border-b">
               <div className="flex items-center gap-3">
                 <ChatbotAvatar />
-                <CardTitle className="text-lg">Survey Assistant</CardTitle>
+                <CardTitle className="text-lg"><TranslatableText>Survey Assistant</TranslatableText></CardTitle>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -618,10 +630,10 @@ export default function SurveyChatbot({
                   className={`h-8 w-8 ${isVoiceMode ? 'text-blue-500' : 'text-gray-500'} ${isSpeaking ? 'animate-pulse' : ''}`}
                   title={
                     isSpeaking
-                      ? 'Speaking...'
+                      ? t('chatbot.listening')
                       : isVoiceMode
-                        ? 'Disable Voice Mode'
-                        : 'Enable Voice Mode'
+                        ? t('chatbot.voiceMode')
+                        : t('chatbot.voiceMode')
                   }
                 >
                   {isVoiceMode ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
@@ -642,7 +654,7 @@ export default function SurveyChatbot({
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.3 }}
                         className={`max-w-[75%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${msg.sender === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-                        {msg.text}
+                        <TranslatableText>{msg.text}</TranslatableText>
                       </motion.div>
                     </div>
                   ))}
@@ -662,7 +674,7 @@ export default function SurveyChatbot({
             <CardFooter className="p-4 border-t">
               <div className="relative w-full">
                 <Textarea
-                  placeholder="Type your answer..."
+                  placeholder={useLiveTranslation('Type your answer here...')}
                   value={inputValue}
                   onChange={e => setInputValue(e.target.value)}
                   onKeyDown={e => {
@@ -687,10 +699,10 @@ export default function SurveyChatbot({
                       }`}
                     title={
                       !isOnline
-                        ? 'Voice input unavailable - No internet connection'
+                        ? t('chatbot.offline')
                         : isListening
-                          ? 'Stop Listening'
-                          : 'Start Voice Input'
+                          ? t('chatbot.listening')
+                          : t('chatbot.voiceMode')
                     }
                     disabled={!isOnline}
                   >
@@ -704,7 +716,7 @@ export default function SurveyChatbot({
                     disabled={isBotTyping || !inputValue.trim()}
                   >
                     <Send className="h-4 w-4" />
-                    <span className="sr-only">Send</span>
+                    <span className="sr-only">{t('chatbot.send')}</span>
                   </Button>
                 </div>
               </div>

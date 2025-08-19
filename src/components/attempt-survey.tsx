@@ -17,6 +17,10 @@ import { submitSurvey, handleValidateAnswer, handleGeneratePersonalizedQuestions
 import { Separator } from './ui/separator';
 import { useIsMobile } from '@/hooks/use-mobile';
 import SurveyChatbot from './survey-chatbot';
+import LanguageSelector from './language-selector';
+import { useLanguage } from '@/contexts/language-context';
+import TranslatableText, { TranslatableLabel, TranslatablePlaceholder } from './translatable-text';
+import { useLiveTranslation } from '@/hooks/use-live-translation';
 
 
 type AttemptSurveyProps = {
@@ -28,6 +32,7 @@ type ValidationErrors = Record<string, string>;
 type PersonalizedQuestion = { questionText: string };
 
 export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
+  const { t } = useLanguage();
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userName, setUserName] = useState('');
@@ -490,24 +495,26 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                 <div key={uniqueId} className="space-y-3 animate-fade-in py-4">
                   <Label htmlFor={`answer-${uniqueId}`} className="text-base flex gap-2">
                     {(!isIterative && !isSubQuestion) && <span>{index + 1}.</span>}
-                    {question.text}
-                    {isIterative && ` (Entry ${iterIndex + 1})`}
+                    <TranslatableText>
+                      {question.text}
+                      {isIterative && ` (Entry ${iterIndex + 1})`}
+                    </TranslatableText>
                   </Label>
 
                   {(() => {
                     switch (question.type) {
                       case 'text':
-                        return <Textarea placeholder="Your answer..." value={value || ''} onChange={e => handleAnswerChange(question.id, e.target.value, isIterative, iterIndex)} className={error ? 'border-destructive' : ''} />;
+                        return <Textarea placeholder={useLiveTranslation('Type your answer here...')} value={value || ''} onChange={e => handleAnswerChange(question.id, e.target.value, isIterative, iterIndex)} className={error ? 'border-destructive' : ''} />;
                       case 'number':
-                        return <Input type="number" placeholder="Enter a number" value={value || ''} onChange={e => handleAnswerChange(question.id, e.target.value, isIterative, iterIndex)} className={error ? 'border-destructive' : ''} />;
+                        return <Input type="number" placeholder={useLiveTranslation('Enter a number')} value={value || ''} onChange={e => handleAnswerChange(question.id, e.target.value, isIterative, iterIndex)} className={error ? 'border-destructive' : ''} />;
                       case 'yes-no':
                         return <RadioGroup onValueChange={(v) => handleAnswerChange(question.id, v, isIterative, iterIndex)} value={value || ''}>
-                          <div className="flex items-center space-x-2"><RadioGroupItem value="Yes" id={`yes-${uniqueId}`} /><Label htmlFor={`yes-${uniqueId}`}>Yes</Label></div>
-                          <div className="flex items-center space-x-2"><RadioGroupItem value="No" id={`no-${uniqueId}`} /><Label htmlFor={`no-${uniqueId}`}>No</Label></div>
+                          <div className="flex items-center space-x-2"><RadioGroupItem value="Yes" id={`yes-${uniqueId}`} /><Label htmlFor={`yes-${uniqueId}`}><TranslatableText>Yes</TranslatableText></Label></div>
+                          <div className="flex items-center space-x-2"><RadioGroupItem value="No" id={`no-${uniqueId}`} /><Label htmlFor={`no-${uniqueId}`}><TranslatableText>No</TranslatableText></Label></div>
                         </RadioGroup>;
                       case 'multiple-choice':
                         return <RadioGroup onValueChange={(v) => handleAnswerChange(question.id, v, isIterative, iterIndex)} value={value || ''} className="space-y-2">
-                          {question.options?.map(opt => <div key={opt.id} className="flex items-center space-x-2"><RadioGroupItem value={opt.text} id={`mc-${uniqueId}-${opt.id}`} /><Label htmlFor={`mc-${uniqueId}-${opt.id}`}>{opt.text}</Label></div>)}
+                          {question.options?.map(opt => <div key={opt.id} className="flex items-center space-x-2"><RadioGroupItem value={opt.text} id={`mc-${uniqueId}-${opt.id}`} /><Label htmlFor={`mc-${uniqueId}-${opt.id}`}><TranslatableText>{opt.text}</TranslatableText></Label></div>)}
                         </RadioGroup>;
                       case 'multiple-choice-multi':
                         return <div className="space-y-2">
@@ -522,7 +529,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                                   onCheckedChange={(checked) => handleMultipleChoiceChange(question.id, option.text, !!checked)}
                                   checked={isChecked}
                                 />
-                                <Label htmlFor={`mcm-${uniqueId}-${option.id}`}>{option.text}</Label>
+                                <Label htmlFor={`mcm-${uniqueId}-${option.id}`}><TranslatableText>{option.text}</TranslatableText></Label>
                               </div>
                             );
                           })}
@@ -605,18 +612,26 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
               <CardTitle>{survey.title}</CardTitle>
               <CardDescription>{survey.description}</CardDescription>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={togglePause}
-              className="flex items-center gap-2"
-            >
-              {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-              {isPaused ? 'Resume' : 'Pause'}
-            </Button>
+            <div className="flex items-center gap-3">
+              <LanguageSelector />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={togglePause}
+                className="flex items-center gap-2"
+              >
+                {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                {isPaused ? useLiveTranslation('Resume') : useLiveTranslation('Pause')}
+              </Button>
+            </div>
           </div>
+          {isPaused && (
+            <div className="mt-2 text-center text-sm text-muted-foreground">
+              <TranslatableText>Survey Paused</TranslatableText>
+            </div>
+          )}
           <CardDescription className="text-center flex flex-col items-center gap-2">
-            <span>Please answer the questions below.</span>
+            <TranslatableText>Please answer the questions below.</TranslatableText>
             <span className="flex items-center gap-2 text-xs text-muted-foreground p-2 rounded-md bg-muted">
               <MapPin className="h-4 w-4" /> {locationStatus}
             </span>
@@ -629,17 +644,17 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
             <Separator />
 
             <div className="space-y-3 p-4 border rounded-lg bg-background mt-6 w-full">
-              <h3 className="text-lg font-semibold">Your Information</h3>
-              <Label htmlFor="user-name">Your Name</Label>
+              <h3 className="text-lg font-semibold"><TranslatableText>Your Information</TranslatableText></h3>
+              <Label htmlFor="user-name"><TranslatableText>Your Name</TranslatableText></Label>
               <div className="flex items-center gap-4">
                 <div className="relative flex-1">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input id="user-name" placeholder="John Doe" value={userName} onChange={(e) => setUserName(e.target.value)} disabled={isAnonymous} className="pl-9" required={!isAnonymous} />
+                  <Input id="user-name" placeholder={useLiveTranslation('Enter your name')} value={userName} onChange={(e) => setUserName(e.target.value)} disabled={isAnonymous} className="pl-9" required={!isAnonymous} />
                 </div>
               </div>
               <div className="flex items-center space-x-2 pt-2">
                 <Checkbox id="anonymous" checked={isAnonymous} onCheckedChange={(checked) => setIsAnonymous(!!checked)} />
-                <Label htmlFor="anonymous" className="flex items-center gap-2 text-sm text-muted-foreground"><VenetianMask className="h-4 w-4" />Submit Anonymously</Label>
+                <Label htmlFor="anonymous" className="flex items-center gap-2 text-sm text-muted-foreground"><VenetianMask className="h-4 w-4" /><TranslatableText>Submit Anonymously</TranslatableText></Label>
               </div>
             </div>
 
@@ -653,7 +668,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
             ) : (
               <Button onClick={handleSubmit} className="w-full" size="lg" disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="mr-2 animate-spin" /> : <Send className="mr-2" />}
-                {isSubmitting ? 'Submitting...' : 'Submit Survey'}
+                {isSubmitting ? useLiveTranslation('Submitting...') : useLiveTranslation('Submit Survey')}
               </Button>
             )}
           </CardFooter>
