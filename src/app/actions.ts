@@ -150,7 +150,7 @@ async function insertQuestions(supabase: any, questions: SurveyQuestion[], surve
 
 
 export async function saveSurvey(title: string, questions: SurveyQuestion[], hasPersonalizedQuestions: boolean): Promise<{ data: SavedSurvey | null, error: string | null }> {
-    const cookieStore = cookies()
+    const cookieStore = cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -230,7 +230,7 @@ const buildQuestionTree = (questionsList: SurveyQuestion[]): SurveyQuestion[] =>
 
 
 export async function getSurveyById(surveyId: string): Promise<{ data: SavedSurvey | null; error: string | null }> {
-    const cookieStore = cookies()
+    const cookieStore = cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -264,7 +264,7 @@ export async function getSurveyById(surveyId: string): Promise<{ data: SavedSurv
 
 
 export async function getSavedSurveys(): Promise<{ data: SavedSurvey[] | null, error: string | null }> {
-    const cookieStore = cookies()
+    const cookieStore = cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -309,7 +309,7 @@ export async function getSavedSurveys(): Promise<{ data: SavedSurvey[] | null, e
 }
 
 export async function deleteSurvey(id: string): Promise<{ error: string | null }> {
-    const cookieStore = cookies()
+    const cookieStore = cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -331,7 +331,7 @@ export async function submitSurvey(
     userName: string | undefined,
     metadata: SubmissionMetadata,
 ): Promise<{ submissionId: string | null, error: string | null }> {
-    const cookieStore = cookies()
+    const cookieStore = cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -445,7 +445,7 @@ export async function submitPersonalizedAnswers(
 
 
 export async function getSurveyResults(surveyId: string): Promise<{ data: SurveyResult[] | null, error: string | null }> {
-    const cookieStore = cookies()
+    const cookieStore = cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

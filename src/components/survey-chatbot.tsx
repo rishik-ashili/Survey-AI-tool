@@ -44,6 +44,10 @@ export default function SurveyChatbot({
   getIterationCount
 }: SurveyChatbotProps) {
   const { t, language } = useLanguage();
+
+  // Move all useLiveTranslation calls to the top to maintain hook order
+  const placeholderText = useLiveTranslation('Type your answer here...');
+
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -674,7 +678,7 @@ export default function SurveyChatbot({
             <CardFooter className="p-4 border-t">
               <div className="relative w-full">
                 <Textarea
-                  placeholder={useLiveTranslation('Type your answer here...')}
+                  placeholder={placeholderText}
                   value={inputValue}
                   onChange={e => setInputValue(e.target.value)}
                   onKeyDown={e => {

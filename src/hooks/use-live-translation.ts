@@ -7,8 +7,8 @@ import { useLanguage } from '@/contexts/language-context';
 export function useLiveTranslation(originalText: any): string {
     const { language } = useLanguage();
 
-    // Ensure we always work with a string
-    const safeText = typeof originalText === 'string' ? originalText : String(originalText || '');
+    // Ensure we always work with a string, handle null/undefined safely
+    const safeText = originalText == null ? '' : (typeof originalText === 'string' ? originalText : String(originalText));
 
     const [translatedText, setTranslatedText] = useState(safeText);
     const [lastTranslatedText, setLastTranslatedText] = useState('');

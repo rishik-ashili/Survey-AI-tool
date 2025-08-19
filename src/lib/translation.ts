@@ -53,9 +53,14 @@ export async function translateTexts(texts: string[], targetLanguage: string = '
 // Detect if text contains English characters (simple heuristic)
 export function isEnglishText(text: any): boolean {
     if (!text || typeof text !== 'string') return false;
+
+    // Safely convert to string and trim
+    const safeText = String(text);
+    if (!safeText.trim()) return false;
+
     // Check if text contains primarily Latin characters
     const englishRegex = /^[a-zA-Z0-9\s.,!?;:()\-"']+$/;
-    return englishRegex.test(text.trim());
+    return englishRegex.test(safeText.trim());
 }
 
 // Clean text for translation (remove extra spaces, special chars)

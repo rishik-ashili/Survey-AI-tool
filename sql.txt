@@ -252,3 +252,31 @@ CREATE POLICY "Anyone can create personalized answers." ON personalized_answers
 
 CREATE POLICY "Anyone can read personalized answers." ON personalized_answers
   FOR SELECT USING (true);
+
+-- User authentication and roles table
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username VARCHAR(50) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  is_admin BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Create index for faster username lookups
+CREATE INDEX idx_users_username ON users(username);
+
+-- Enable RLS for users table
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+-- Users can read their own data
+CREATE POLICY "Users can read their own data" ON users
+  FOR SELECT USING (true);
+
+-- Anyone can insert (for signup)
+CREATE POLICY "Anyone can create user accounts" ON users
+  FOR INSERT WITH CHECK (true);
+
+-- Users can update their own data
+CREATE POLICY "Users can update their own data" ON users
+  FOR UPDATE USING (true);

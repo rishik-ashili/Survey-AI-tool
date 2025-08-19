@@ -16,6 +16,24 @@ declare global {
   }
 }
 
+// User authentication types
+export interface User {
+  id: string;
+  username: string;
+  is_admin: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signup: (username: string, password: string, adminCode?: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => void;
+  isAdmin: boolean;
+}
+
 export interface SurveyQuestion {
   id: string; // This will be a UUID from Supabase
   text: string;
