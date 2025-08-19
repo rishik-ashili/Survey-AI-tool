@@ -19,15 +19,19 @@ export default function PersonalizedAnswersDisplay({ submissionId }: Personalize
 
   useEffect(() => {
     const fetchAnswers = async () => {
+      console.log('Fetching personalized answers for submission:', submissionId);
       setIsLoading(true);
       const { data, error } = await getPersonalizedAnswers(submissionId);
+      console.log('Personalized answers result:', { data, error });
       if (error) {
+        console.error('Error fetching personalized answers:', error);
         toast({
           variant: "destructive",
           title: "Error",
           description: "Could not fetch personalized answers for this submission.",
         });
       } else {
+        console.log('Setting personalized answers:', data);
         setAnswers(data || []);
       }
       setIsLoading(false);

@@ -7,6 +7,7 @@ import { generateSurvey, type GenerateSurveyInput, type GenerateSurveyOutput } f
 import { validateAnswer, type ValidateAnswerInput, type ValidateAnswerOutput } from "@/ai/flows/validate-answer-flow";
 import { shouldAskQuestion, type ShouldAskQuestionInput, type ShouldAskQuestionOutput } from "@/ai/flows/should-ask-question-flow";
 import { generatePersonalizedQuestions, type GeneratePersonalizedQuestionsInput, type GeneratePersonalizedQuestionsOutput } from "@/ai/flows/generate-personalized-questions-flow";
+import { generateSurveyInsights, type SurveyInsightsInput, type SurveyInsightsOutput } from "@/ai/flows/survey-insights-flow";
 import type { SavedSurvey, SurveyQuestion, SurveyResult, SubmissionMetadata, PersonalizedAnswer } from "@/types";
 
 export async function handleGenerateSurvey(input: GenerateSurveyInput): Promise<GenerateSurveyOutput> {
@@ -463,6 +464,117 @@ export async function getSurveyResults(surveyId: string): Promise<{ data: Survey
     }
 
     return { data: data || [], error: null };
+}
+
+export async function handleGenerateSurveyInsights(surveyId: string): Promise<{ data: SurveyInsightsOutput | null, error: string | null }> {
+    console.log('handleGenerateSurveyInsights called with surveyId:', surveyId);
+
+    const cookieStore = cookies();
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get: (name) => cookieStore.get(name)?.value } }
+    );
+
+    try {
+        // First, get the survey details
+        const { data: surveyData, error: surveyError } = await supabase
+            .from('surveys')
+            .select('title')
+            .eq('id', surveyId)
+            .single();
+
+        if (surveyError) {
+            console.error("Error fetching survey data:", surveyError);
+            return { data: null, error: surveyError.message };
+        }
+
+        // Get survey results
+        const { data: resultsData, error: resultsError } = await supabase
+            .from('survey_results')
+            .select('question_text, question_type, answer_value')
+            .eq('survey_id', surveyId);
+
+        console.log('Survey results data:', resultsData);
+
+        if (resultsError) {
+            console.error("Error fetching survey results:", resultsError);
+            return { data: null, error: resultsError.message };
+        }
+
+        if (!resultsData || resultsData.length === 0) {
+            console.log('No survey results found for survey:', surveyId);
+            return {
+                data: {
+                    summary: "No survey responses have been collected yet.",
+                    insights: [],
+                    recommendations: ["Increase survey distribution to gather meaningful data."],
+                    demographicAnalysis: "No demographic data available.",
+                    sentimentAnalysis: "No sentiment data available.",
+                },
+                error: null
+            };
+        }
+
+        // Process the results to group by question
+        const questionResults = new Map<string, {
+            questionText: string;
+            questionType: string;
+            responses: Map<string, number>;
+            totalResponses: number;
+        }>();
+
+        resultsData.forEach(result => {
+            const key = `${result.question_text}-${result.question_type}`;
+            if (!questionResults.has(key)) {
+                questionResults.set(key, {
+                    questionText: result.question_text,
+                    questionType: result.question_type,
+                    responses: new Map(),
+                    totalResponses: 0
+                });
+            }
+
+            const questionData = questionResults.get(key)!;
+            const answer = result.answer_value;
+
+            questionData.responses.set(answer, (questionData.responses.get(answer) || 0) + 1);
+            questionData.totalResponses += 1;
+        });
+
+        // Format data for AI
+        const formattedQuestionResults = Array.from(questionResults.values()).map(q => ({
+            questionText: q.questionText,
+            questionType: q.questionType,
+            totalResponses: q.totalResponses,
+            responses: Array.from(q.responses.entries()).map(([answer, count]) => ({
+                answer,
+                count,
+                percentage: Math.round((count / q.totalResponses) * 100)
+            }))
+        }));
+
+        const totalSubmissions = new Set(resultsData.map(r => r.submission_id)).size;
+
+        const insightsInput: SurveyInsightsInput = {
+            surveyTitle: surveyData.title,
+            totalSubmissions,
+            questionResults: formattedQuestionResults
+        };
+
+        console.log('Formatted insights input:', insightsInput);
+
+        // Generate insights using AI
+        console.log('Calling AI to generate survey insights...');
+        const surveyInsights = await generateSurveyInsights(insightsInput);
+
+        console.log('AI generated insights:', surveyInsights);
+
+        return { data: surveyInsights, error: null };
+    } catch (error) {
+        console.error("Error generating survey insights:", error);
+        return { data: null, error: "Failed to generate survey insights" };
+    }
 }
 
 export async function getPersonalizedAnswers(submissionId: string): Promise<{ data: PersonalizedAnswer[] | null, error: string | null }> {

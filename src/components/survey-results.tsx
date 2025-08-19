@@ -7,7 +7,7 @@ import { getSurveyResults } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ArrowLeft, Loader2, User, ChevronDown, PieChart as PieIcon, LineChart as LineIcon, BarChart as BarIcon, Smartphone, Laptop, MapPin, Clock } from 'lucide-react';
+import { ArrowLeft, Loader2, User, ChevronDown, PieChart as PieIcon, LineChart as LineIcon, BarChart as BarIcon, Smartphone, Laptop, MapPin, Clock, Brain } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
@@ -17,6 +17,7 @@ import { Bar, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { format } from 'date-fns';
 import PersonalizedAnswersDisplay from './personalized-answers-display';
+import SurveyInsights from './survey-insights';
 import { getPreciseLocation } from '@/lib/utils';
 
 
@@ -271,6 +272,15 @@ export default function SurveyResults({ survey, onBack }: SurveyResultsProps) {
             <p className="text-center text-muted-foreground py-8">No results yet.</p>
           ) : (
             <div className="space-y-8">
+              {/* AI Insights Section */}
+              <div>
+                <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
+                  <Brain className="h-5 w-5" />
+                  AI Insights
+                </h3>
+                <SurveyInsights surveyId={survey.id} surveyTitle={survey.title} />
+              </div>
+
               <div>
                 <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">Charts</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
