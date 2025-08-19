@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Send, User, VenetianMask, Loader2, CheckCircle, Sparkles, MessageCircleQuestion, MapPin } from 'lucide-react';
+import { ArrowLeft, Send, User, VenetianMask, Loader2, CheckCircle, Sparkles, MessageCircleQuestion, MapPin, Pause, Play } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Input } from './ui/input';
@@ -35,6 +35,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [metadata, setMetadata] = useState<SubmissionMetadata>({});
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [isValidated, setIsValidated] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [showPersonalized, setShowPersonalized] = useState(false);
@@ -44,8 +45,67 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   const [isSubmittingPersonalized, setIsSubmittingPersonalized] = useState(false);
   const [locationStatus, setLocationStatus] = useState('Detecting location...');
 
+  // Time tracking state
+  const [questionStartTimes, setQuestionStartTimes] = useState<Record<string, number>>({});
+  const [questionTimeTracking, setQuestionTimeTracking] = useState<Record<string, { startTime: number; pausedTime: number }>>({});
+
   const { toast } = useToast();
   const isMobile = useIsMobile();
+
+  // Time tracking functions
+  const startQuestionTimer = useCallback((questionId: string) => {
+    const now = Date.now();
+    setQuestionStartTimes(prev => ({ ...prev, [questionId]: now }));
+    setQuestionTimeTracking(prev => ({
+      ...prev,
+      [questionId]: { startTime: now, pausedTime: 0 }
+    }));
+  }, []);
+
+  const pauseQuestionTimer = useCallback((questionId: string) => {
+    if (questionStartTimes[questionId]) {
+      const now = Date.now();
+      const elapsed = now - questionStartTimes[questionId];
+      setQuestionTimeTracking(prev => ({
+        ...prev,
+        [questionId]: {
+          ...prev[questionId],
+          pausedTime: (prev[questionId]?.pausedTime || 0) + elapsed
+        }
+      }));
+    }
+  }, [questionStartTimes]);
+
+  const resumeQuestionTimer = useCallback((questionId: string) => {
+    const now = Date.now();
+    setQuestionStartTimes(prev => ({ ...prev, [questionId]: now }));
+  }, []);
+
+  const getQuestionTimeTaken = useCallback((questionId: string): number => {
+    const tracking = questionTimeTracking[questionId];
+    if (!tracking) return 0;
+
+    const now = Date.now();
+    const currentElapsed = now - questionStartTimes[questionId];
+    return Math.round((tracking.pausedTime + currentElapsed) / 1000); // Convert to seconds
+  }, [questionTimeTracking, questionStartTimes]);
+
+  const togglePause = useCallback(() => {
+    setIsPaused(prev => {
+      const newPaused = !prev;
+
+      // Pause/resume all active question timers
+      Object.keys(questionStartTimes).forEach(questionId => {
+        if (newPaused) {
+          pauseQuestionTimer(questionId);
+        } else {
+          resumeQuestionTimer(questionId);
+        }
+      });
+
+      return newPaused;
+    });
+  }, [questionStartTimes, pauseQuestionTimer, resumeQuestionTimer]);
 
 
   useEffect(() => {
@@ -111,23 +171,44 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   }, [survey.questions]);
 
 
-  const handleAnswerChange = (questionId: string, value: any, isIterative: boolean = false, iterationIndex?: number) => {
-    setIsValidated(false); // Any change invalidates the form
-    setErrors(prev => {
-      const newErrors = { ...prev };
-      const errorKey = isIterative && iterationIndex !== undefined ? `${questionId}-${iterationIndex}` : questionId;
-      delete newErrors[errorKey];
-      return newErrors;
-    });
+  const handleAnswerChange = (questionId: string, value: any, isIterative?: boolean, iterationIndex?: number) => {
+    const timeTaken = getQuestionTimeTaken(questionId);
 
-    if (isIterative && iterationIndex !== undefined) {
+    if (isIterative) {
       setAnswers(prev => {
-        const existingValues = (prev[questionId] && prev[questionId].values) ? [...prev[questionId].values] : [];
-        existingValues[iterationIndex] = value;
-        return { ...prev, [questionId]: { isIterative: true, values: existingValues } };
+        const existing = prev[questionId] || { values: [] };
+        const newValues = [...(existing.values || [])];
+        newValues[iterationIndex!] = value;
+        return {
+          ...prev,
+          [questionId]: {
+            ...existing,
+            values: newValues,
+            timeTakenSeconds: timeTaken,
+            questionStartedAt: new Date(questionStartTimes[questionId] || Date.now()).toISOString(),
+            questionAnsweredAt: new Date().toISOString()
+          }
+        };
       });
     } else {
-      setAnswers(prev => ({ ...prev, [questionId]: value }));
+      setAnswers(prev => ({
+        ...prev,
+        [questionId]: {
+          value,
+          timeTakenSeconds: timeTaken,
+          questionStartedAt: new Date(questionStartTimes[questionId] || Date.now()).toISOString(),
+          questionAnsweredAt: new Date().toISOString()
+        }
+      }));
+    }
+
+    // Clear validation error for this question
+    if (errors[questionId]) {
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[questionId];
+        return newErrors;
+      });
     }
   };
 
@@ -139,10 +220,13 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       return newErrors;
     });
 
-    const currentAnswers = (answers[questionId] as string[] | undefined) || [];
+    const answerData = answers[questionId];
+    const currentAnswers = typeof answerData === 'object' ? (answerData?.value || []) : (answerData || []);
+    const currentArray = Array.isArray(currentAnswers) ? currentAnswers : [];
+
     const newAnswers = isChecked
-      ? [...currentAnswers, optionText]
-      : currentAnswers.filter((ans) => ans !== optionText);
+      ? [...currentArray, optionText]
+      : currentArray.filter((ans) => ans !== optionText);
     handleAnswerChange(questionId, newAnswers);
   };
 
@@ -152,7 +236,8 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     const sourceQuestion = Array.from(questionMap.values()).find(q => q.text === question.iterative_source_question_text);
     if (!sourceQuestion) return 1;
 
-    const sourceAnswer = answers[sourceQuestion.id];
+    const sourceAnswerRaw = answers[sourceQuestion.id];
+    const sourceAnswer = typeof sourceAnswerRaw === 'object' ? (sourceAnswerRaw?.value ?? sourceAnswerRaw) : sourceAnswerRaw;
     const count = Number(sourceAnswer);
     return !isNaN(count) && count > 0 ? count : 0;
   }, [answers, questionMap]);
@@ -164,7 +249,8 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       if (!parent || !isQuestionVisible(parent)) {
         return false;
       }
-      const parentAnswer = answers[question.parent_question_id];
+      const parentAnswerRaw = answers[question.parent_question_id];
+      const parentAnswer = typeof parentAnswerRaw === 'object' ? (parentAnswerRaw?.value ?? parentAnswerRaw?.values) : parentAnswerRaw;
       if (parentAnswer === undefined || parentAnswer === null) {
         return false;
       }
@@ -184,7 +270,8 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       const sourceQuestion = Array.from(questionMap.values()).find(q => q.text === question.iterative_source_question_text);
       if (!sourceQuestion) return false;
 
-      const sourceAnswer = answers[sourceQuestion.id];
+      const sourceAnswerRaw = answers[sourceQuestion.id];
+      const sourceAnswer = typeof sourceAnswerRaw === 'object' ? (sourceAnswerRaw?.value ?? sourceAnswerRaw) : sourceAnswerRaw;
       const count = Number(sourceAnswer);
       if (isNaN(count) || count <= 0) {
         return false;
@@ -201,34 +288,46 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     const questionsToValidate = Array.from(questionMap.values()).filter(q => isQuestionVisible(q));
 
     for (const question of questionsToValidate) {
-      const answer = answers[question.id];
+      const answerData = answers[question.id];
       const iterationCount = getIterationCount(question);
       const isIterative = question.is_iterative && iterationCount > 0;
 
       if (isIterative) {
         for (let i = 0; i < iterationCount; i++) {
-          const iterValue = (answer?.values || [])[i];
+          const iterValue = (answerData?.values || [])[i];
           if (iterValue === undefined || iterValue === null || iterValue === '') {
             allValid = false;
             newErrors[`${question.id}-${i}`] = 'This field is required.';
           }
         }
-      } else if (answer === undefined || answer === null || answer === '' || (Array.isArray(answer) && answer.length === 0)) {
-        allValid = false;
-        newErrors[question.id] = "This question is required.";
-        continue; // Skip AI validation if it's empty
+      } else {
+        const value = typeof answerData === 'object' ? answerData?.value : answerData;
+        if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) {
+          allValid = false;
+          newErrors[question.id] = "This question is required.";
+          continue; // Skip AI validation if it's empty
+        }
       }
 
       // AI validation for text inputs
-      if (question.type === 'text' && answer && !isIterative) {
-        const validationResult = await handleValidateAnswer({
-          question: question.text,
-          answer: String(answer),
-          expected_answers: question.expected_answers,
-        });
-        if (!validationResult.isValid) {
-          allValid = false;
-          newErrors[question.id] = validationResult.suggestion || "This answer seems invalid.";
+      if (question.type === 'text' && answerData && !isIterative) {
+        const value = typeof answerData === 'object' ? String(answerData?.value ?? '') : String(answerData ?? '');
+        if (value) {
+          const validationInput: any = {
+            question: question.text,
+            answer: value,
+          };
+
+          // Only add expected_answers if it has a value
+          if (question.expected_answers) {
+            validationInput.expected_answers = question.expected_answers;
+          }
+
+          const validationResult = await handleValidateAnswer(validationInput);
+          if (!validationResult.isValid) {
+            allValid = false;
+            newErrors[question.id] = validationResult.suggestion || "This answer seems invalid.";
+          }
         }
       }
     }
@@ -250,29 +349,63 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     setIsSubmitting(false);
   }
 
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!isValidated) {
-      toast({ variant: "destructive", title: "Not Validated", description: "Please validate your answers before submitting." });
-      return;
-    }
+  const handleSubmit = async () => {
+    console.log('handleSubmit called!');
     setIsSubmitting(true);
-    const { submissionId: newSubmissionId, error } = await submitSurvey(survey.id, answers, isAnonymous ? undefined : userName, metadata);
-    setIsSubmitting(false);
+
+    const { submissionId: newSubmissionId, error } = await submitSurvey(
+      survey.id,
+      answers,
+      isAnonymous ? undefined : userName,
+      metadata
+    );
 
     if (error || !newSubmissionId) {
-      toast({ variant: "destructive", title: "Submission Failed", description: "Something went wrong. Please try again." });
-    } else {
-      setSubmissionId(newSubmissionId);
-      toast({ title: "Survey Submitted!", description: "Thank you for your feedback." });
-
-      if (survey.has_personalized_questions) {
-        triggerPersonalizedQuestions(newSubmissionId);
-      } else {
-        // No personalized questions, just show success and back button
-        setShowPersonalized(true);
-      }
+      toast({ variant: "destructive", title: "Error", description: error || 'Submission failed.' });
+      setIsSubmitting(false);
+      return;
     }
+
+    setSubmissionId(newSubmissionId);
+
+    console.log('Survey has personalized questions:', survey.has_personalized_questions);
+
+    if (survey.has_personalized_questions) {
+      console.log('Generating personalized questions for submission:', newSubmissionId);
+      setIsGeneratingPersonalized(true);
+
+      try {
+        const { data: personalizedData, error: personalizedError } = await handleGeneratePersonalizedQuestions(newSubmissionId);
+        setIsGeneratingPersonalized(false);
+
+        console.log('Personalized questions result:', { personalizedData, personalizedError });
+
+        if (personalizedError) {
+          console.error('Error generating personalized questions:', personalizedError);
+          toast({ variant: "destructive", title: "Error", description: personalizedError });
+          setIsSubmitting(false);
+          return;
+        }
+
+        const questions = personalizedData?.questions || [];
+        console.log('Setting personalized questions:', questions);
+        setPersonalizedQuestions(questions);
+        setShowPersonalized(true);
+        console.log('Show personalized set to true');
+      } catch (error) {
+        console.error('Exception in personalized questions generation:', error);
+        setIsGeneratingPersonalized(false);
+        toast({ variant: "destructive", title: "Error", description: "Failed to generate personalized questions" });
+        setIsSubmitting(false);
+        return;
+      }
+    } else {
+      console.log('No personalized questions for this survey');
+      toast({ title: "Success", description: "Survey submitted successfully!" });
+      onBack();
+    }
+
+    setIsSubmitting(false);
   };
 
   const triggerPersonalizedQuestions = async (currentSubmissionId: string) => {
@@ -280,13 +413,16 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
     setShowPersonalized(true);
     setSubmissionId(currentSubmissionId); // Make sure submissionId is set for the personalized submit
 
-    const formattedAnswers = Object.entries(answers).map(([qId, ans]) => {
+    const formattedAnswers = Object.entries(answers).map(([qId, answerData]) => {
       const questionText = questionMap.get(qId)?.text || '';
-      return { question: questionText, answer: String(ans) };
+      const answer = typeof answerData === 'object' ?
+        (answerData?.value ?? answerData?.values ?? answerData) :
+        answerData;
+      return { question: questionText, answer: String(answer) };
     }).filter(a => a.question);
 
-    const result = await handleGeneratePersonalizedQuestions({ answers: formattedAnswers });
-    setPersonalizedQuestions(result.questions);
+    const result = await handleGeneratePersonalizedQuestions(currentSubmissionId);
+    setPersonalizedQuestions(result.data?.questions || []);
     setIsGeneratingPersonalized(false);
   };
 
@@ -310,6 +446,23 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
   };
 
 
+  // Effect to start timers for visible questions
+  useEffect(() => {
+    const visibleQuestions = Array.from(questionMap.values()).filter(q => {
+      try {
+        return isQuestionVisible(q);
+      } catch {
+        return false;
+      }
+    });
+
+    visibleQuestions.forEach(q => {
+      if (!questionStartTimes[q.id]) {
+        startQuestionTimer(q.id);
+      }
+    });
+  }, [questionMap, isQuestionVisible, questionStartTimes, startQuestionTimer, answers]);
+
   const renderQuestion = (question: SurveyQuestion, index: number, isSubQuestion: boolean = false) => {
     if (!isQuestionVisible(question)) {
       return null;
@@ -329,7 +482,8 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
           >
             {[...Array(iterationCount)].map((_, iterIndex) => {
               const uniqueId = question.id + (isIterative ? `-${iterIndex}` : '');
-              const value = isIterative ? (answers[question.id]?.values || [])[iterIndex] : answers[question.id];
+              const answerData = answers[question.id];
+              const value = isIterative ? (answerData?.values || [])[iterIndex] : answerData?.value;
               const error = errors[isIterative ? `${question.id}-${iterIndex}` : question.id];
 
               return (
@@ -357,12 +511,21 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                         </RadioGroup>;
                       case 'multiple-choice-multi':
                         return <div className="space-y-2">
-                          {question.options?.map(option => (
-                            <div key={option.id} className="flex items-center space-x-2">
-                              <Checkbox id={`mcm-${uniqueId}-${option.id}`} onCheckedChange={(checked) => handleMultipleChoiceChange(question.id, option.text, !!checked)} checked={((answers[question.id] as string[]) || []).includes(option.text)} />
-                              <Label htmlFor={`mcm-${uniqueId}-${option.id}`}>{option.text}</Label>
-                            </div>
-                          ))}
+                          {question.options?.map(option => {
+                            const answerData = answers[question.id];
+                            const currentAnswers = typeof answerData === 'object' ? (answerData?.value || []) : (answerData || []);
+                            const isChecked = Array.isArray(currentAnswers) && currentAnswers.includes(option.text);
+                            return (
+                              <div key={option.id} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`mcm-${uniqueId}-${option.id}`}
+                                  onCheckedChange={(checked) => handleMultipleChoiceChange(question.id, option.text, !!checked)}
+                                  checked={isChecked}
+                                />
+                                <Label htmlFor={`mcm-${uniqueId}-${option.id}`}>{option.text}</Label>
+                              </div>
+                            );
+                          })}
                         </div>;
                       default: return null;
                     }
@@ -437,7 +600,21 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
       </Button>
       <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle className="text-center text-2xl font-bold">{survey.title}</CardTitle>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>{survey.title}</CardTitle>
+              <CardDescription>{survey.description}</CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={togglePause}
+              className="flex items-center gap-2"
+            >
+              {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+              {isPaused ? 'Resume' : 'Pause'}
+            </Button>
+          </div>
           <CardDescription className="text-center flex flex-col items-center gap-2">
             <span>Please answer the questions below.</span>
             <span className="flex items-center gap-2 text-xs text-muted-foreground p-2 rounded-md bg-muted">
@@ -445,7 +622,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
             </span>
           </CardDescription>
         </CardHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={(e) => e.preventDefault()}>
           <CardContent className="space-y-6">
             {survey.questions.map((q, i) => renderQuestion(q, i))}
 
@@ -474,7 +651,7 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
                 {isSubmitting ? 'Validating...' : 'Validate Answers'}
               </Button>
             ) : (
-              <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
+              <Button onClick={handleSubmit} className="w-full" size="lg" disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="mr-2 animate-spin" /> : <Send className="mr-2" />}
                 {isSubmitting ? 'Submitting...' : 'Submit Survey'}
               </Button>
@@ -490,10 +667,6 @@ export default function AttemptSurvey({ survey, onBack }: AttemptSurveyProps) {
         isQuestionVisible={isQuestionVisible}
         getIterationCount={getIterationCount}
       />
-      {/* Debug: Log the survey questions structure */}
-      {console.log('=== DEBUG: Survey Questions Structure ===', survey.questions)}
-      {console.log('=== DEBUG: First question sub_questions ===', survey.questions[0]?.sub_questions)}
-      {console.log('=== DEBUG: All questions with sub_questions ===', survey.questions.map(q => ({ id: q.id, text: q.text, sub_questions: q.sub_questions })))}
     </div>
   );
 }

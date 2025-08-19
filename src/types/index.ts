@@ -8,6 +8,14 @@ export interface QuestionOption {
   question_id?: string;
 }
 
+// Web Speech API declarations
+declare global {
+  interface Window {
+    SpeechRecognition: typeof SpeechRecognition;
+    webkitSpeechRecognition: typeof SpeechRecognition;
+  }
+}
+
 export interface SurveyQuestion {
   id: string; // This will be a UUID from Supabase
   text: string;
@@ -18,7 +26,7 @@ export interface SurveyQuestion {
   survey_id?: string; // from Supabase
   min_range?: number;
   max_range?: number;
-  
+
   // New properties for advanced surveys
   parent_question_id?: string | null;
   trigger_condition_value?: string | null;
@@ -48,32 +56,35 @@ export interface SurveySubmission {
 
 // Represents a single answer within a submission
 export interface SubmissionAnswer {
-    id: string;
-    submission_id: string;
-    question_id: string;
-    value: string; // Stored as text, parsed based on question type
-    iteration?: number; // For iterative questions
+  id: string;
+  submission_id: string;
+  question_id: string;
+  value: string; // Stored as text, parsed based on question type
+  iteration?: number; // For iterative questions
 }
 
 export interface SurveyResult {
-    survey_id: string;
-    survey_title: string;
-    submission_id: string;
-    user_name: string | null;
-    submission_created_at: string;
-    latitude: number | null;
-    longitude: number | null;
-    city: string | null;
-    country: string | null;
-    device_type: string | null;
-    question_id: string;
-    question_text: string;
-    question_type: QuestionType;
-    answer_value: string;
-    parent_question_id?: string | null;
-    is_iterative?: boolean;
-    iterative_source_question_id?: string | null;
-    iterative_source_question_text?: string | null;
+  survey_id: string;
+  survey_title: string;
+  submission_id: string;
+  user_name: string | null;
+  submission_created_at: string;
+  latitude: number | null;
+  longitude: number | null;
+  city: string | null;
+  country: string | null;
+  device_type: string | null;
+  question_id: string;
+  question_text: string;
+  question_type: QuestionType;
+  answer_value: string;
+  parent_question_id?: string | null;
+  is_iterative?: boolean;
+  iterative_source_question_id?: string | null;
+  iterative_source_question_text?: string | null;
+  time_taken_seconds?: number | null; // Time taken to answer this question
+  question_started_at?: string | null; // When the question was first shown
+  question_answered_at?: string | null; // When the question was answered
 }
 
 export interface PersonalizedAnswer {
@@ -85,9 +96,9 @@ export interface PersonalizedAnswer {
 }
 
 export interface SubmissionMetadata {
-    latitude?: number;
-    longitude?: number;
-    city?: string;
-    country?: string;
-    device_type?: 'mobile' | 'desktop';
+  latitude?: number;
+  longitude?: number;
+  city?: string;
+  country?: string;
+  device_type?: 'mobile' | 'desktop';
 }

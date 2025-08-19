@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Bot, Send, Loader2, X } from "lucide-react";
+import { Bot, Send, Loader2, X, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { SurveyQuestion } from "@/types";
 import { Button } from "./ui/button";
@@ -40,16 +40,31 @@ export default function SurveyChatbot({
   isQuestionVisible,
   getIterationCount
 }: SurveyChatbotProps) {
-  // Debug: Log what questions data the chatbot receives
-  console.log('=== DEBUG: Chatbot Received Questions ===', questions);
-  console.log('=== DEBUG: First question in chatbot ===', questions[0]);
-  console.log('=== DEBUG: First question sub_questions in chatbot ===', questions[0]?.sub_questions);
-
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isBotTyping, setIsBotTyping] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState<ChatbotQuestion | null>(null);
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+
+  // Check online status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    setIsOnline(navigator.onLine);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const allQuestionsFlattened = useMemo(() => {
     const flatQuestions: ChatbotQuestion[] = [];
@@ -73,92 +88,135 @@ export default function SurveyChatbot({
     return flatQuestions;
   }, [questions]);
 
-
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const synthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const addMessage = useCallback((sender: "user" | "bot", text: string) => {
     const newId = `${Date.now()}-${Math.random()}`;
     setMessages(prev => [...prev, { id: newId, sender, text }]);
   }, []);
 
-  // ROBUST APPROACH: Create a function that directly scans the DOM to find all visible questions
-  // and their hierarchical relationships, bypassing any data structure issues
-  const scanVisibleQuestionsFromDOM = useCallback(() => {
-    try {
-      // Look for all question elements in the main survey form
-      const questionElements = document.querySelectorAll('[data-question-id]');
-      const visibleQuestions: Array<{
-        id: string;
-        text: string;
-        type: string;
-        options?: string[];
-        isSubQuestion: boolean;
-        parentQuestionId?: string;
-        level: number;
-      }> = [];
+  // Text-to-Speech functionality
+  const speakQuestion = useCallback((questionText: string) => {
+    if (!isVoiceMode || !window.speechSynthesis) return;
 
-      questionElements.forEach((element) => {
-        const questionId = element.getAttribute('data-question-id');
-        if (questionId && element.offsetParent !== null) { // Check if element is visible
-          // Get the question text
-          const questionTextElement = element.querySelector('label, .question-text, h3, h4, h5, h6');
-          const questionText = questionTextElement?.textContent?.trim() || 'Question';
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
 
-          // Determine if this is a sub-question by checking its position and styling
-          const isSubQuestion = element.closest('.sub-question, .conditional-question, [style*="margin-left"], [style*="padding-left"]') !== null;
+    const utterance = new SpeechSynthesisUtterance(questionText);
+    utterance.rate = 0.9;
+    utterance.pitch = 1;
+    utterance.volume = 0.8;
 
-          // Estimate the level based on indentation or parent containers
-          let level = 0;
-          let parent = element.parentElement;
-          while (parent && parent !== document.body) {
-            if (parent.classList.contains('sub-question') || parent.classList.contains('conditional-question')) {
-              level++;
-            }
-            parent = parent.parentElement;
-          }
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = (event) => {
+      console.error('Speech synthesis error:', event);
+      setIsSpeaking(false);
+    };
 
-          // Get question type and options
-          let questionType = 'text';
-          let options: string[] = [];
+    synthesisRef.current = utterance;
 
-          // Check for radio buttons, checkboxes, etc.
-          const radioButtons = element.querySelectorAll('input[type="radio"]');
-          const checkboxes = element.querySelectorAll('input[type="checkbox"]');
-          const textInputs = element.querySelectorAll('input[type="text"], textarea');
+    // Add a small delay to ensure speech synthesis is ready
+    setTimeout(() => {
+      try {
+        window.speechSynthesis.speak(utterance);
+      } catch (error) {
+        console.error('Failed to speak:', error);
+        setIsSpeaking(false);
+      }
+    }, 50);
+  }, [isVoiceMode]);
 
-          if (radioButtons.length > 0) {
-            questionType = radioButtons.length === 2 ? 'yes-no' : 'multiple-choice';
-            options = Array.from(radioButtons).map(radio => {
-              const label = radio.nextElementSibling?.textContent?.trim() || radio.value;
-              return label;
-            });
-          } else if (checkboxes.length > 0) {
-            questionType = 'multiple-choice-multi';
-            options = Array.from(checkboxes).map(checkbox => {
-              const label = checkbox.nextElementSibling?.textContent?.trim() || checkbox.value;
-              return label;
-            });
-          } else if (textInputs.length > 0) {
-            questionType = 'text';
-          }
-
-          visibleQuestions.push({
-            id: questionId,
-            text: questionText,
-            type: questionType,
-            options: options.length > 0 ? options : undefined,
-            isSubQuestion,
-            level
-          });
-        }
-      });
-
-      console.log('Visible questions scanned from DOM:', visibleQuestions);
-      return visibleQuestions;
-    } catch (error) {
-      console.warn('Could not scan DOM for visible questions:', error);
-      return [];
+  // Speech-to-Text functionality
+  const startListening = useCallback(() => {
+    if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+      alert('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      return;
     }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      console.log('Speech recognition started');
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      console.log('Speech recognized:', transcript);
+      setInputValue(transcript);
+      setIsListening(false);
+    };
+
+    recognition.onerror = (event) => {
+      console.error('Speech recognition error:', event.error);
+      setIsListening(false);
+
+      // Provide user feedback for common errors
+      if (event.error === 'no-speech') {
+        alert('No speech detected. Please try speaking again.');
+      } else if (event.error === 'audio-capture') {
+        alert('Microphone access denied. Please allow microphone access and try again.');
+      } else if (event.error === 'not-allowed') {
+        alert('Microphone access denied. Please allow microphone access and try again.');
+      } else if (event.error === 'network') {
+        alert('Network error occurred. Please check your internet connection and try again. Speech recognition requires an internet connection.');
+      } else if (event.error === 'service-not-allowed') {
+        alert('Speech recognition service is not available. Please try again later or use text input instead.');
+      } else {
+        alert(`Speech recognition error: ${event.error}. Please try again or use text input instead.`);
+      }
+    };
+
+    recognition.onend = () => {
+      console.log('Speech recognition ended');
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+
+    try {
+      recognition.start();
+    } catch (error) {
+      console.error('Failed to start speech recognition:', error);
+      setIsListening(false);
+      alert('Failed to start speech recognition. Please try again or use text input instead.');
+    }
+  }, []);
+
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (error) {
+        console.error('Error stopping speech recognition:', error);
+      }
+      setIsListening(false);
+    }
+  }, []);
+
+  // Cleanup speech synthesis on unmount
+  useEffect(() => {
+    return () => {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (error) {
+          console.error('Error stopping recognition during cleanup:', error);
+        }
+      }
+    };
   }, []);
 
   const findNextQuestion = useCallback(() => {
@@ -186,8 +244,7 @@ export default function SurveyChatbot({
       }
     }
 
-    // CRITICAL FIX: Check for conditional questions that should appear based on the current question's answer
-    // This needs to happen BEFORE looking for the next main question
+    // Check for conditional questions that should appear based on the current question's answer
     const findQuestionInHierarchy = (qs: SurveyQuestion[], targetId: string): SurveyQuestion | null => {
       for (const q of qs) {
         if (q.id === targetId) {
@@ -205,30 +262,32 @@ export default function SurveyChatbot({
     const currentQuestionData = findQuestionInHierarchy(questions, currentQuestion.originalId);
 
     if (currentQuestionData && currentQuestionData.sub_questions) {
-      console.log('Checking for conditional questions after:', currentQuestionData.text);
-      console.log('Available sub-questions:', currentQuestionData.sub_questions);
-
       // Check each sub-question to see if it should be visible now
       for (const subQ of currentQuestionData.sub_questions) {
-        console.log('Checking sub-question:', subQ.text, 'with trigger:', subQ.trigger_condition_value);
-
         // Strategy 1: Use the isQuestionVisible function
         if (isQuestionVisible(subQ)) {
-          console.log('Found visible conditional question via isQuestionVisible:', subQ);
           return { ...subQ, originalId: subQ.id };
         }
 
         // Strategy 2: Direct check of trigger condition
-        const parentAnswer = currentAnswers[currentQuestionData.id];
+        const parentAnswerRaw = currentAnswers[currentQuestionData.id];
+        const parentAnswer = typeof parentAnswerRaw === 'object' ? (parentAnswerRaw?.value ?? parentAnswerRaw?.values) : parentAnswerRaw;
+
         if (parentAnswer !== undefined && parentAnswer !== null) {
           const triggerValue = String(subQ.trigger_condition_value || '').toLowerCase();
-          const answerValue = String(parentAnswer).toLowerCase();
 
-          console.log('Direct check - Parent answer:', parentAnswer, 'vs trigger:', triggerValue);
-
-          if (answerValue === triggerValue) {
-            console.log('Found conditional question via direct answer check:', subQ);
-            return { ...subQ, originalId: subQ.id };
+          if (Array.isArray(parentAnswer)) {
+            // Multiple choice answer - check if any value matches
+            const hasMatch = parentAnswer.some(ans => String(ans).toLowerCase() === triggerValue);
+            if (hasMatch) {
+              return { ...subQ, originalId: subQ.id };
+            }
+          } else {
+            // Single answer check
+            const answerValue = String(parentAnswer).toLowerCase();
+            if (answerValue === triggerValue) {
+              return { ...subQ, originalId: subQ.id };
+            }
           }
         }
       }
@@ -250,6 +309,28 @@ export default function SurveyChatbot({
     return null; // No more questions
   }, [currentQuestion, allQuestionsFlattened, questions, isQuestionVisible, getIterationCount, currentAnswers]);
 
+  const toggleVoiceMode = useCallback(() => {
+    setIsVoiceMode(prev => {
+      const newVoiceMode = !prev;
+
+      // If enabling voice mode and there's a current question, speak it immediately
+      if (newVoiceMode && currentQuestion && window.speechSynthesis) {
+        // Cancel any ongoing speech
+        window.speechSynthesis.cancel();
+
+        // Speak the current question with a longer delay to ensure synthesis is ready
+        setTimeout(() => {
+          speakQuestion(currentQuestion.text);
+        }, 200);
+      } else if (!newVoiceMode && window.speechSynthesis) {
+        // If disabling voice mode, stop any ongoing speech
+        window.speechSynthesis.cancel();
+        setIsSpeaking(false);
+      }
+
+      return newVoiceMode;
+    });
+  }, [currentQuestion, speakQuestion]);
 
   const askQuestion = useCallback((question: ChatbotQuestion | null) => {
     setIsBotTyping(true);
@@ -273,20 +354,26 @@ export default function SurveyChatbot({
         }
         addMessage("bot", questionText);
         setCurrentQuestion(question);
+
+        // Speak the question if voice mode is enabled
+        if (isVoiceMode) {
+          // Add a longer delay to ensure the question is set and synthesis is ready
+          setTimeout(() => {
+            speakQuestion(question.text);
+          }, 300);
+        }
       } else {
         addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
         setCurrentQuestion(null);
       }
-    }, 500); // A small delay to feel more natural and allow UI to update
-  }, [addMessage, messages.length]);
-
+    }, 500);
+  }, [addMessage, messages.length, isVoiceMode, speakQuestion]);
 
   const startConversation = useCallback(() => {
     setMessages([]);
     const firstQuestion = findNextQuestion();
     askQuestion(firstQuestion);
   }, [askQuestion, findNextQuestion]);
-
 
   useEffect(() => {
     if (isOpen) {
@@ -304,16 +391,15 @@ export default function SurveyChatbot({
     }
   }, [messages]);
 
-
   const handleUserInput = async () => {
     if (!inputValue.trim() || !currentQuestion) return;
 
-    const userAnswer = inputValue;
+    const userAnswer = inputValue.trim();
     addMessage("user", userAnswer);
     setInputValue("");
     setIsBotTyping(true);
 
-    if (userAnswer.trim().toLowerCase() === 'submit') {
+    if (userAnswer.toLowerCase() === 'submit') {
       if (!currentQuestion) {
         await onSubmit();
         addMessage("bot", "Your survey has been submitted successfully. Thank you for your time!");
@@ -328,15 +414,44 @@ export default function SurveyChatbot({
     }
 
     let answerToSave = userAnswer;
-    const numericAnswer = parseInt(userAnswer.trim(), 10);
 
-    if (!isNaN(numericAnswer) && (currentQuestion.type.startsWith('multiple-choice') || currentQuestion.type === 'yes-no')) {
+    // Handle MCQ and yes-no questions with both numeric and text input
+    if (currentQuestion.type.startsWith('multiple-choice') || currentQuestion.type === 'yes-no') {
       const options = currentQuestion.type === 'yes-no'
         ? ['Yes', 'No']
         : currentQuestion.options?.map(o => o.text) || [];
 
-      if (numericAnswer > 0 && numericAnswer <= options.length) {
+      // First try to parse as number
+      const numericAnswer = parseInt(userAnswer, 10);
+      if (!isNaN(numericAnswer) && numericAnswer > 0 && numericAnswer <= options.length) {
         answerToSave = options[numericAnswer - 1];
+      } else {
+        // If not a valid number, try to match the text input with options
+        const normalizedInput = userAnswer.toLowerCase().trim();
+        const matchedOption = options.find(option =>
+          option.toLowerCase().trim() === normalizedInput ||
+          option.toLowerCase().includes(normalizedInput) ||
+          normalizedInput.includes(option.toLowerCase())
+        );
+
+        if (matchedOption) {
+          answerToSave = matchedOption;
+        } else {
+          // If no exact match, try partial matching for longer options
+          const partialMatch = options.find(option => {
+            const optionWords = option.toLowerCase().split(/\s+/);
+            const inputWords = normalizedInput.split(/\s+/);
+            return inputWords.some(inputWord =>
+              optionWords.some(optionWord =>
+                optionWord.includes(inputWord) || inputWord.includes(optionWord)
+              )
+            );
+          });
+
+          if (partialMatch) {
+            answerToSave = partialMatch;
+          }
+        }
       }
     }
 
@@ -356,7 +471,6 @@ export default function SurveyChatbot({
       onAnswerChange(currentQuestion.originalId, answerToSave, currentQuestion.is_iterative, currentQuestion.iterationIndex);
 
       // IMMEDIATE CHECK: Look for conditional questions that should appear right now
-      console.log('=== IMMEDIATE CHECK: Looking for conditional questions ===');
       const findQuestionInHierarchy = (qs: SurveyQuestion[], targetId: string): SurveyQuestion | null => {
         for (const q of qs) {
           if (q.id === targetId) {
@@ -372,94 +486,52 @@ export default function SurveyChatbot({
 
       const currentQuestionData = findQuestionInHierarchy(questions, currentQuestion.originalId);
       if (currentQuestionData && currentQuestionData.sub_questions) {
-        console.log('Found question with sub-questions:', currentQuestionData.text);
-        console.log('Sub-questions:', currentQuestionData.sub_questions);
-
         // Check if any sub-questions should be visible now
         for (const subQ of currentQuestionData.sub_questions) {
-          console.log('Checking sub-question:', subQ.text);
-
           // Check if this sub-question should be visible based on the answer we just gave
           const parentAnswer = answerToSave; // Use the answer we just gave
           const triggerValue = String(subQ.trigger_condition_value || '').toLowerCase();
-          const answerValue = String(parentAnswer).toLowerCase();
 
-          console.log('Trigger check:', answerValue, 'vs', triggerValue);
-
-          if (answerValue === triggerValue) {
-            console.log('FOUND CONDITIONAL QUESTION TO ASK:', subQ);
-            // Ask this conditional question immediately
-            const conditionalQuestion = { ...subQ, originalId: subQ.id };
-            askQuestion(conditionalQuestion);
-            return; // Exit early, don't start polling
+          if (Array.isArray(parentAnswer)) {
+            // Multiple choice answer - check if any value matches
+            const hasMatch = parentAnswer.some(ans => String(ans).toLowerCase() === triggerValue);
+            if (hasMatch) {
+              const conditionalQuestion = { ...subQ, originalId: subQ.id };
+              askQuestion(conditionalQuestion);
+              return; // Exit early, don't start polling
+            }
+          } else {
+            // Single answer check
+            const answerValue = String(parentAnswer).toLowerCase();
+            if (answerValue === triggerValue) {
+              // Ask this conditional question immediately
+              const conditionalQuestion = { ...subQ, originalId: subQ.id };
+              askQuestion(conditionalQuestion);
+              return; // Exit early, don't start polling
+            }
           }
         }
       }
 
       // If no conditional questions found, use the polling mechanism to find the next question
-      console.log('No conditional questions found, using polling mechanism...');
-
-      // ROBUST APPROACH: Use a polling mechanism to detect when conditional questions become visible
-      // This ensures we don't miss any questions that should appear
       let attempts = 0;
-      const maxAttempts = 10; // Maximum attempts to find the next question
+      const maxAttempts = 10;
 
       const findNextQuestionWithPolling = () => {
         attempts++;
-        console.log(`Attempt ${attempts} to find next question...`);
 
-        // Strategy 1: Try the normal findNextQuestion first
+        // Try the normal findNextQuestion first
         let nextQuestion = findNextQuestion();
 
-        // Strategy 2: If no question found, use the DOM-based approach as a fallback
-        if (!nextQuestion) {
-          console.log('No question found via normal method, trying DOM-based approach...');
-          const visibleQuestions = scanVisibleQuestionsFromDOM();
-
-          // Find the first question that's visible in DOM but not yet asked
-          for (const question of visibleQuestions) {
-            const questionData = allQuestionsFlattened.find(q => q.id === question.id);
-            if (questionData && questionData.id !== currentQuestion?.originalId) {
-              nextQuestion = questionData;
-              console.log('Found question via DOM approach:', nextQuestion);
-              break;
-            }
-          }
-        }
-
-        // Strategy 3: If still no question found, try to find conditional questions by scanning the DOM
-        // and looking for questions that appear after the current question
-        if (!nextQuestion) {
-          console.log('Trying to find conditional questions via DOM scanning...');
-          const visibleQuestions = scanVisibleQuestionsFromDOM();
-
-          // Find questions that appear after the current question in the DOM order
-          const currentQuestionIndex = visibleQuestions.findIndex(q => q.id === currentQuestion?.originalId);
-          if (currentQuestionIndex !== -1) {
-            // Look for the next question after the current one
-            for (let i = currentQuestionIndex + 1; i < visibleQuestions.length; i++) {
-              const question = visibleQuestions[i];
-              const questionData = allQuestionsFlattened.find(q => q.id === question.id);
-              if (questionData && questionData.id !== currentQuestion?.originalId) {
-                nextQuestion = questionData;
-                console.log('Found next question via DOM order:', nextQuestion);
-                break;
-              }
-            }
-          }
-        }
-
         if (nextQuestion) {
-          console.log('Next question found:', nextQuestion);
           askQuestion(nextQuestion);
           return;
         }
 
         // If no question found and we haven't exceeded max attempts, try again after a short delay
         if (attempts < maxAttempts) {
-          setTimeout(findNextQuestionWithPolling, 200); // Poll every 200ms
+          setTimeout(findNextQuestionWithPolling, 200);
         } else {
-          console.log('Max attempts reached, no more questions found');
           // If we still can't find a question, assume we're done
           addMessage("bot", "That's all the questions I have! You can now submit the survey using the button on the main page, or by typing 'submit'.");
           setCurrentQuestion(null);
@@ -476,37 +548,40 @@ export default function SurveyChatbot({
     }
   };
 
-  // Debug function to help understand the current state
-  const debugCurrentState = useCallback(() => {
-    console.log('=== DEBUG: Current Chatbot State ===');
-    console.log('Current question:', currentQuestion);
-    console.log('Current answers:', currentAnswers);
-    console.log('All questions:', questions);
-    console.log('All questions flattened:', allQuestionsFlattened);
+  const handleVoiceInput = useCallback(() => {
+    if (isListening) {
+      stopListening();
+    } else {
+      // Check if we're online first
+      if (!isOnline) {
+        alert('You appear to be offline. Speech recognition requires an internet connection. Please check your connection and try again.');
+        return;
+      }
 
-    if (currentQuestion) {
-      const currentQuestionData = questions.find(q => q.id === currentQuestion.originalId) ||
-        questions.flatMap(q => q.sub_questions || []).find(sq => sq.id === currentQuestion.originalId);
-
-      if (currentQuestionData) {
-        console.log('Current question data:', currentQuestionData);
-        if (currentQuestionData.sub_questions) {
-          console.log('Sub-questions:', currentQuestionData.sub_questions);
-          currentQuestionData.sub_questions.forEach((subQ, index) => {
-            console.log(`Sub-question ${index}:`, {
-              id: subQ.id,
-              text: subQ.text,
-              parent_question_id: subQ.parent_question_id,
-              trigger_condition_value: subQ.trigger_condition_value,
-              isVisible: isQuestionVisible(subQ)
-            });
+      // Check if microphone permission is available
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ audio: true })
+          .then(() => {
+            // Microphone access granted, start listening
+            startListening();
+          })
+          .catch((error) => {
+            console.error('Microphone access denied:', error);
+            if (error.name === 'NotAllowedError') {
+              alert('Microphone access denied. Please allow microphone access in your browser settings and try again.\n\nTo enable microphone access:\n1. Click the microphone icon in your browser\'s address bar\n2. Select "Allow"\n3. Refresh the page and try again');
+            } else if (error.name === 'NotFoundError') {
+              alert('No microphone found. Please connect a microphone and try again.');
+            } else {
+              alert('Microphone access error: ' + error.message + '\n\nPlease check your microphone settings and try again.');
+            }
           });
-        }
+      } else {
+        // Fallback for browsers without getUserMedia
+        console.warn('getUserMedia not supported, trying speech recognition directly');
+        startListening();
       }
     }
-
-    console.log('=== END DEBUG ===');
-  }, [currentQuestion, currentAnswers, questions, allQuestionsFlattened, isQuestionVisible]);
+  }, [isListening, startListening, stopListening, isOnline]);
 
   if (!isOpen) {
     return (
@@ -539,11 +614,17 @@ export default function SurveyChatbot({
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={debugCurrentState}
-                  className="h-8 w-8 text-xs"
-                  title="Debug State"
+                  onClick={toggleVoiceMode}
+                  className={`h-8 w-8 ${isVoiceMode ? 'text-blue-500' : 'text-gray-500'} ${isSpeaking ? 'animate-pulse' : ''}`}
+                  title={
+                    isSpeaking
+                      ? 'Speaking...'
+                      : isVoiceMode
+                        ? 'Disable Voice Mode'
+                        : 'Enable Voice Mode'
+                  }
                 >
-                  🐛
+                  {isVoiceMode ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
                 </Button>
                 <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)}>
                   <X className="h-5 w-5" />
@@ -593,10 +674,39 @@ export default function SurveyChatbot({
                   className="pr-20 min-h-0 h-12"
                   rows={1}
                 />
-                <Button type="submit" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8" onClick={handleUserInput} disabled={isBotTyping || !inputValue.trim()}>
-                  <Send className="h-4 w-4" />
-                  <span className="sr-only">Send</span>
-                </Button>
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <Button
+                    type="button"
+                    size="icon"
+                    onClick={handleVoiceInput}
+                    className={`h-8 w-8 ${isListening
+                      ? 'text-red-500 animate-pulse'
+                      : !isOnline
+                        ? 'text-gray-400 cursor-not-allowed'
+                        : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    title={
+                      !isOnline
+                        ? 'Voice input unavailable - No internet connection'
+                        : isListening
+                          ? 'Stop Listening'
+                          : 'Start Voice Input'
+                    }
+                    disabled={!isOnline}
+                  >
+                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={handleUserInput}
+                    disabled={isBotTyping || !inputValue.trim()}
+                  >
+                    <Send className="h-4 w-4" />
+                    <span className="sr-only">Send</span>
+                  </Button>
+                </div>
               </div>
             </CardFooter>
           </Card>
